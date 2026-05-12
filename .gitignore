@@ -1,0 +1,57 @@
+# ──────────────────────────────────────────────
+# CRITICAL — secrets and env
+# ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.log
+.npm
+.yarn/
+.pnp.*
+
+# Database
+*.sqlite
+*.db
+postgres_data/
+qdrant_data/
+redis_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Outputs
+output/
+output_*/
+*.csv
+!.env.example
+
+# Docker
+docker-compose.override.yml
