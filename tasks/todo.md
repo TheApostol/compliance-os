@@ -1,0 +1,177 @@
+# ComplianceOS — Full Roadmap
+
+_Written: 2026-05-14. Branch: `claude/workflow-orchestration-system-1Hx7Y`_
+
+---
+
+## T1 · Verify Orchestrator v0.2 Routing
+
+**Goal:** Confirm every model in ROUTING is live and the fallback chains behave correctly.
+
+- [ ] Code-review `ai_orchestrator.py` ROUTING table against CLAUDE.md validated model list
+- [ ] Check deprecated model IDs are not in any active chain
+- [ ] Run `make benchmark` (requires Docker + NVIDIA key)
+- [ ] Confirm all 8 TaskTypes return success responses
+- [ ] Fix any dead routes found
+
+**Files:** `backend/app/services/ai_orchestrator.py`
+
+---
+
+## T2 · Complete M6 Evidence Module
+
+**Goal:** PDF → structured obligations → chain-of-custody → DB. API already wired.
+
+### What exists
+- `engine.py` (full pipeline: PyMuPDF → LLM → SHA-256 custody hash → DB persist)
+- API endpoints: `POST /evidence/extract`, `GET /evidence/documents`, `GET /evidence/documents/{id}`
+- DB model: `EvidenceDocument` in `models.py`
+
+### What's missing
+- [ ] Verify Alembic migration includes `evidence_documents` table
+- [ ] Add embedding step: after LLM extraction, embed full text into Qdrant `evidence` collection
+- [ ] Add `matched_obligations` cross-reference logic (compare extracted obligations vs DB obligations)
+- [ ] Integration test: upload a real regulator PDF, verify structured output + custody hash
+- [ ] Error handling for scanned-only PDFs (char_count < 50 → fallback message)
+- [ ] Expose extraction confidence in GET /evidence/documents response
+
+**Files:** `backend/app/modules/evidence/engine.py`, `backend/app/api/v1/router.py`, `backend/app/db/models.py`
+
+---
+
+## T3 · Qdrant RAG Layer
+
+**Goal:** Embed regulations on ingestion; retrieve top-K chunks for Copilot context.
+
+### Architecture
+- Qdrant collection: `regulations` (vector size 1024 — NV-Embed-v2 or text-embedding-3-small)
+- Embedding triggered when: (a) M1 parses a regulation, (b) M6 extracts a PDF
+- Retrieval: top-4 chunks injected into Copilot system prompt
+
+### Tasks
+- [ ] Create `backend/app/services/rag_service.py`
+  - `embed_regulation(regulation_id, text, metadata)` → upsert into Qdrant
+  - `retrieve(query, tenant_id, top_k=4)` → returns list of chunk dicts
+  - `ensure_collection()` → idempotent collection creation
+- [ ] Choose embedding model: use NVIDIA NIM `/v1/embeddings` endpoint (nvidia/nv-embed-v2)
+  - Add `EMBEDDINGS_MODEL` to config + orchestrator
+- [ ] Wire embedding into M1 after successful parse (post-persist hook)
+- [ ] Wire embedding into M6 after successful extraction
+- [ ] Fix Copilot RAG retrieval (currently stub/best-effort) to use `rag_service.retrieve()`
+- [ ] Add `GET /rag/status` endpoint: collection info + document count
+- [ ] Test: parse a regulation → verify it appears in Qdrant → copilot returns it as context
+
+**Files:** `backend/app/services/rag_service.py` (new), `backend/app/modules/regulatory/engine.py`, `backend/app/modules/copilot/copilot.py`, `backend/app/api/v1/router.py`
+
+---
+
+## T4 · Regulatory Crawler (BCRA + UIF Argentina)
+
+**Goal:** Scheduled crawler that fetches new Argentine regulations, parses with M1, stores in DB + Qdrant.
+
+### Architecture
+- New module: `backend/app/modules/crawler/`
+  - `bcra_crawler.py` — Banco Central de la República Argentina
+  - `uif_crawler.py` — Unidad de Información Financiera
+  - `base_crawler.py` — shared fetch/dedup logic
+- Scheduler: APScheduler (async) inside FastAPI lifespan
+- Dedup: `source_hash` SHA-256 prevents re-processing the same document
+
+### Tasks
+- [ ] Add `apscheduler>=3.10.0` + `httpx` (already in requirements) to deps
+- [ ] Create `backend/app/modules/crawler/base_crawler.py`
+  - Abstract `fetch_index()` → list of `{url, title, published_at}`
+  - `fetch_document(url)` → bytes
+  - `process(doc_bytes, metadata)` → calls M1 parse, M6 extract, RAG embed
+  - Dedup via `source_hash` check in DB
+- [ ] Create `backend/app/modules/crawler/bcra_crawler.py`
+  - Target: BCRA Comunicaciones index
+  - Parse HTML index → extract communication URLs
+- [ ] Create `backend/app/modules/crawler/uif_crawler.py`
+  - Target: UIF Resoluciones/Normas index
+  - Parse HTML index → extract resolution URLs
+- [ ] Create `backend/app/modules/crawler/scheduler.py`
+  - APScheduler `AsyncIOScheduler`
+  - BCRA: every 6 hours; UIF: every 12 hours
+  - Wire into FastAPI `lifespan` context
+- [ ] Add crawler status endpoints: `GET /crawler/status`, `POST /crawler/run-now`
+- [ ] Add env vars: `CRAWLER_ENABLED`, `CRAWLER_BCRA_URL`, `CRAWLER_UIF_URL`
+- [ ] Test: trigger manual run, verify regulation appears in DB + Qdrant
+
+**Files:** `backend/app/modules/crawler/` (new), `backend/app/main.py` (lifespan), `backend/app/api/v1/router.py`, `backend/requirements.txt`
+
+---
+
+## T5 · Compliance Graph (Postgres + AGE)
+
+**Goal:** Model Regulation → Obligation → Entity → Control as a queryable graph.
+
+### Architecture
+- Use Apache AGE (Postgres graph extension) — avoids ops overhead of Neo4j
+- Add AGE to `docker-compose.yml` (use `apache/age:latest` image or enable extension)
+- Graph vertices: Regulation, Obligation, Entity (company/person), Control, Regulator
+- Graph edges: REQUIRES, APPLIES_TO, SATISFIES, ISSUED_BY, CROSS_REFERENCES
+- Cypher queries exposed via FastAPI endpoints
+
+### Tasks
+- [ ] Update `docker-compose.yml`: use `apache/age` postgres image (replaces vanilla postgres:16)
+- [ ] Create `backend/app/services/graph_service.py`
+  - `ensure_graph()` → create AGE graph `compliance_graph` if not exists
+  - `upsert_regulation(regulation)` → vertex + edges
+  - `upsert_obligation(obligation)` → vertex + REQUIRES edge to regulation
+  - `link_control(obligation_id, control_description)` → SATISFIES edge
+  - `cypher_query(query_str)` → raw Cypher execution
+- [ ] Wire graph updates into M1 after successful parse
+- [ ] Add endpoints: `GET /graph/regulation/{id}/obligations`, `GET /graph/entity/{id}/obligations`, `POST /graph/query` (raw Cypher, admin-only)
+- [ ] Create Alembic migration to enable AGE extension + create graph
+- [ ] Test: parse a regulation → verify graph vertices + edges exist
+
+**Files:** `docker-compose.yml`, `backend/app/services/graph_service.py` (new), `backend/app/modules/regulatory/engine.py`, `backend/app/api/v1/router.py`
+
+**Risk:** AGE requires Postgres 14-16. Verify version compatibility. Fallback: pgRouting or pure adjacency table.
+
+---
+
+## T6 · Auth Integration (JWT replacing X-Tenant-Id)
+
+**Goal:** Replace bare `X-Tenant-Id` header with signed JWTs. RBAC for admin vs analyst roles.
+
+### Architecture
+- JWT signed with app secret (HS256) — no external auth provider dependency for v1
+- Claims: `sub` (user_id), `tenant_id`, `role` (admin|analyst|viewer), `exp`
+- Middleware: FastAPI dependency `get_current_user` → injects `tenant_id` + `role`
+- Auth endpoints: `POST /auth/token` (login), `POST /auth/refresh`
+- Future: swap signing to Auth0/Clerk JWKS without changing downstream code
+
+### Tasks
+- [ ] Create `backend/app/core/auth.py`
+  - `create_token(user_id, tenant_id, role)` → signed JWT
+  - `decode_token(token)` → claims dict or raise 401
+  - `get_current_user` FastAPI dependency
+- [ ] Create `backend/app/db/models.py` addition: `User` model (id, tenant_id, email, hashed_password, role, is_active)
+- [ ] Create Alembic migration for `users` table
+- [ ] Add `POST /auth/token` endpoint (email+password → JWT)
+- [ ] Add `POST /auth/register` endpoint (admin only)
+- [ ] Replace `X-Tenant-Id` header extraction in `router.py` with `get_current_user` dependency
+- [ ] Keep backward-compat: if JWT absent but `X-Tenant-Id` present + `app_env != production` → allow (dev mode)
+- [ ] Add `X-User-Id` claim from JWT (deprecate header)
+- [ ] RBAC guards: `POST /graph/query`, `/crawler/run-now` → admin only
+- [ ] Test: get token → call protected endpoint → verify tenant isolation
+
+**Files:** `backend/app/core/auth.py` (new), `backend/app/db/models.py`, `backend/app/api/v1/router.py`, `backend/requirements.txt`
+
+---
+
+## Execution Order
+
+```
+T1 (benchmark/verify) → T2 (M6 complete) → T3 (Qdrant RAG) → T4 (crawler) → T5 (graph) → T6 (auth)
+```
+
+T3 must precede T4 (crawler needs embed). T5 and T6 are independent of each other and can follow any order after T3.
+
+---
+
+## Review
+
+_To be filled in after each task completes._
