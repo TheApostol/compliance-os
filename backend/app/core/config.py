@@ -92,6 +92,11 @@ class Settings(BaseSettings):
     default_tenant_id: str = "polkorp"
     default_tenant_name: str = "Polkorp Global Ventures"
 
+    # ── Crawler ────────────────────────────────────────────
+    crawler_enabled: bool = True
+    crawler_bcra_url: str = "https://www.bcra.gob.ar/SistemasFinancieros/sf_comunicaciones.asp"
+    crawler_uif_url: str = "https://www.uif.gob.ar/uif/index.php/es/normativa"
+
     # ── Convenience flags ──────────────────────────────────
     @property
     def is_production(self) -> bool:

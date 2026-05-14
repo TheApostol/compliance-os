@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
 from app.modules.regulatory.engine import RegulatoryIntelligence
@@ -18,6 +19,10 @@ from app.modules.monitoring.engine import MonitoringEngine
 from app.modules.governance.engine import AIGovernance
 from app.modules.evidence.engine import EvidenceEngine
 from app.services.ai_orchestrator import MODELS, ROUTING
+from app.core.auth import (
+    CurrentUser, get_current_user, require_admin,
+    create_access_token, hash_password, verify_password,
+)
 from fastapi import UploadFile, File, Query
 
 
@@ -25,15 +30,15 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Tenant resolver (header-based for now; JWT in production)
+# Tenant / user resolver — JWT-first, X-Tenant-Id dev fallback
 # ═══════════════════════════════════════════════════════════════════
 
-async def get_tenant_id(x_tenant_id: str = Header(default="polkorp")) -> str:
-    return x_tenant_id
+async def get_tenant_id(user: CurrentUser = Depends(get_current_user)) -> str:
+    return user.tenant_id
 
 
-async def get_user_id(x_user_id: str = Header(default=None)) -> str | None:
-    return x_user_id
+async def get_user_id(user: CurrentUser = Depends(get_current_user)) -> str | None:
+    return user.user_id
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -325,3 +330,160 @@ async def get_evidence_document(
     """Retrieve a specific evidence document with full structured data."""
     engine = EvidenceEngine()
     return await engine.get_document(document_id=document_id, tenant_id=tenant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTH
+# ═══════════════════════════════════════════════════════════════════
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str = Field(..., min_length=8)
+    role: str = "analyst"
+
+
+@router.post("/auth/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Exchange email + password for a JWT access token."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import User
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(User).where(User.email == form_data.username, User.is_active == True)
+        user = (await session.execute(stmt)).scalar_one_or_none()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = create_access_token(
+        user_id=str(user.id),
+        tenant_id=user.tenant_id,
+        role=user.role.value,
+    )
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/auth/register", status_code=201)
+async def register_user(
+    req: RegisterRequest,
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Register a new user (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import User, UserRole
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        try:
+            role = UserRole(req.role)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid role: {req.role}")
+
+        new_user = User(
+            tenant_id=admin.tenant_id,
+            email=req.email,
+            hashed_password=hash_password(req.password),
+            role=role,
+        )
+        session.add(new_user)
+        await session.commit()
+        return {"success": True, "user_id": str(new_user.id), "email": new_user.email, "role": role.value}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RAG
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/rag/status")
+async def rag_status():
+    """Qdrant collection info and document count."""
+    from app.services.rag import get_rag, COLLECTION
+    try:
+        client = get_rag()._get_qdrant()
+        info = await client.get_collection(COLLECTION)
+        return {
+            "collection": COLLECTION,
+            "vector_count": info.vectors_count,
+            "indexed_vectors": info.indexed_vectors_count,
+            "status": info.status,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/rag/reindex")
+async def rag_reindex(
+    tenant_id: str = Depends(get_tenant_id),
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Re-embed all regulations from DB into Qdrant (admin only)."""
+    from app.services.rag import get_rag
+    return await get_rag().index_all_regulations(tenant_id=tenant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CRAWLER
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/crawler/status")
+async def crawler_status():
+    """Crawler schedule and last-run stats."""
+    from app.core.config import get_settings
+    s = get_settings()
+    return {
+        "enabled": s.crawler_enabled,
+        "bcra_url": s.crawler_bcra_url,
+        "uif_url": s.crawler_uif_url,
+        "schedule": {"bcra_interval_hours": 6, "uif_interval_hours": 12},
+    }
+
+
+@router.post("/crawler/run-now")
+async def crawler_run_now(
+    regulator: str | None = Query(default=None, description="bcra | uif | all"),
+    tenant_id: str = Depends(get_tenant_id),
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Trigger an immediate crawler run (admin only)."""
+    from app.modules.crawler.scheduler import run_bcra, run_uif, run_all
+    reg = (regulator or "all").lower()
+    if reg == "bcra":
+        return await run_bcra(tenant_id=tenant_id)
+    elif reg == "uif":
+        return await run_uif(tenant_id=tenant_id)
+    else:
+        return await run_all(tenant_id=tenant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# COMPLIANCE GRAPH
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/graph/stats")
+async def graph_stats():
+    """High-level compliance graph statistics (vertex + edge counts by type)."""
+    from app.services.graph_service import get_graph
+    return await get_graph().graph_stats()
+
+
+@router.get("/graph/regulation/{regulation_id}")
+async def graph_regulation_subgraph(regulation_id: str):
+    """Return the compliance subgraph rooted at a regulation (BFS depth 3)."""
+    from app.services.graph_service import get_graph
+    return await get_graph().get_regulation_subgraph(regulation_id=regulation_id)
+
+
+@router.get("/graph/entity/{entity_id}/obligations")
+async def graph_entity_obligations(entity_id: str):
+    """Return all obligations that apply to a given entity in the graph."""
+    from app.services.graph_service import get_graph
+    return await get_graph().get_obligations_for_entity(entity_id=entity_id)

@@ -67,6 +67,9 @@ class TaskType(str, Enum):
     OCR_EXTRACTION = "ocr_extraction"
     RAG_RERANK = "rag_rerank"
 
+    # Embeddings (separate API call, not chat completions)
+    EMBEDDING = "embedding"
+
     # Multilingual specialization
     MULTILINGUAL_ZH = "multilingual_zh"
 
@@ -87,6 +90,10 @@ class ModelSpec:
     strengths: tuple[str, ...] = ()
     benchmark_quality: float = 0.0
     notes: str = ""
+
+
+EMBED_MODEL = "nvidia/nv-embed-v2"
+EMBED_DIMS = 1024
 
 
 MODELS: dict[str, ModelSpec] = {
@@ -400,6 +407,21 @@ class AIOrchestrator:
     def _audit_id(req: InferenceRequest) -> str:
         payload = f"{req.tenant_id}:{req.task}:{datetime.now(timezone.utc).isoformat()}:{req.user_prompt[:80]}"
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+    async def embed(self, texts: list[str], tenant_id: str = "system") -> list[list[float]] | None:
+        """Generate embeddings via NVIDIA NIM nv-embed-v2. Returns list of vectors or None on failure."""
+        if not self.settings.has_nvidia:
+            return None
+        try:
+            await self.rate_limiter.acquire()
+            response = await self.client.embeddings.create(
+                model=EMBED_MODEL,
+                input=[t[:8000] for t in texts],
+                encoding_format="float",
+            )
+            return [item.embedding for item in response.data]
+        except Exception as e:
+            return None
 
     def _fail(self, req, error_msg: str, chain_used=None, audit_tag: str = "ERROR") -> InferenceResult:
         return InferenceResult(

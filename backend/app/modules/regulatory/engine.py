@@ -124,13 +124,45 @@ class RegulatoryIntelligence:
 
         # Persist to DB — best-effort, never blocks the response
         persisted = 0
+        reg_id = None
         if result.success and obligations_data:
-            persisted = await self._persist_obligations(
+            persisted, reg_id = await self._persist_obligations(
                 country=country, regulator=regulator, code=code,
                 title=title, text=text,
                 obligations_data=obligations_data,
                 model_used=result.model_used,
             )
+
+        # Index in Qdrant for RAG — best-effort, non-blocking
+        if result.success and reg_id:
+            try:
+                from app.services.rag import get_rag
+                await get_rag().index_regulation(
+                    regulation_id=reg_id,
+                    country=country,
+                    regulator=regulator,
+                    code=code,
+                    title=title,
+                    text=text,
+                    tenant_id=tenant_id,
+                )
+            except Exception:
+                pass
+
+        # Add to compliance graph — best-effort, non-blocking
+        if result.success and reg_id and obligations_data:
+            try:
+                from app.services.graph_service import get_graph
+                await get_graph().add_regulation(
+                    regulation_id=reg_id,
+                    country=country,
+                    regulator=regulator,
+                    code=code,
+                    title=title,
+                    obligations=obligations_data,
+                )
+            except Exception:
+                pass
 
         return {
             "success": result.success,
@@ -152,8 +184,8 @@ class RegulatoryIntelligence:
         text: str,
         obligations_data: list[dict],
         model_used: str,
-    ) -> int:
-        """Upsert regulation + insert obligations. Returns count persisted."""
+    ) -> tuple[int, str | None]:
+        """Upsert regulation + insert obligations. Returns (count, regulation_id)."""
         from app.db.base import AsyncSessionLocal
         from app.db.models import (
             Regulation, Obligation,
@@ -220,9 +252,9 @@ class RegulatoryIntelligence:
                     count += 1
 
                 await session.commit()
-                return count
+                return count, str(reg.id)
         except Exception:
-            return 0
+            return 0, None
 
     async def map_cross_border(
         self,

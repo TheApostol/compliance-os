@@ -217,3 +217,73 @@ class EvidenceDocument(Base):
     __table_args__ = (
         Index("ix_evidence_tenant_created", "tenant_id", "created_at"),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# COMPLIANCE GRAPH
+# ═══════════════════════════════════════════════════════════════════
+
+class GraphVertex(Base):
+    """
+    Graph node. vertex_type: regulation | obligation | entity | control | regulator
+    entity_id references the PK of the source table (regulation.id, obligation.id, etc.)
+    """
+    __tablename__ = "graph_vertices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vertex_type = Column(String(32), nullable=False, index=True)
+    entity_id = Column(String(64), nullable=False, index=True)    # FK by convention only
+    label = Column(String(255), nullable=False)
+    properties = Column(JSONB, default=dict)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_vertex_type_entity", "vertex_type", "entity_id"),
+    )
+
+
+class GraphEdge(Base):
+    """
+    Directed graph edge. edge_type: REQUIRES | APPLIES_TO | SATISFIES | ISSUED_BY | CROSS_REFERENCES
+    from_vertex_id → to_vertex_id
+    """
+    __tablename__ = "graph_edges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    from_vertex_id = Column(UUID(as_uuid=True), ForeignKey("graph_vertices.id"), nullable=False)
+    to_vertex_id = Column(UUID(as_uuid=True), ForeignKey("graph_vertices.id"), nullable=False)
+    edge_type = Column(String(64), nullable=False, index=True)
+    properties = Column(JSONB, default=dict)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    from_vertex = relationship("GraphVertex", foreign_keys=[from_vertex_id])
+    to_vertex = relationship("GraphVertex", foreign_keys=[to_vertex_id])
+
+    __table_args__ = (
+        Index("ix_edge_from", "from_vertex_id"),
+        Index("ix_edge_to", "to_vertex_id"),
+        Index("ix_edge_type_from", "edge_type", "from_vertex_id"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTH — USERS
+# ═══════════════════════════════════════════════════════════════════
+
+class UserRole(str, enum.Enum):
+    ADMIN   = "admin"
+    ANALYST = "analyst"
+    VIEWER  = "viewer"
+
+
+class User(Base):
+    """Application user. JWT claims carry tenant_id + role at login."""
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)  # tenant slug
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(SAEnum(UserRole), default=UserRole.ANALYST, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

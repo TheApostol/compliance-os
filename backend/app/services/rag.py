@@ -1,39 +1,33 @@
 """
 ComplianceOS — Qdrant RAG Service
 ===================================
-Embeddings: nvidia/nv-embedqa-e5-v5 (1024 dims, asymmetric query/passage)
-Vector DB: Qdrant (local container)
+Embeds regulatory text via the AIOrchestrator (nvidia/nv-embed-v2, 1024 dims)
+and stores/retrieves vectors in Qdrant for Copilot context injection.
 
-Usage:
-  - Index a regulation:    await rag.index_regulation(reg_id, text, metadata)
-  - Retrieve context:      chunks = await rag.retrieve(query, top_k=5)
-  - Copilot integration:   context_block = await rag.context_for_query(question)
+Architecture note: all embedding calls go through AIOrchestrator.embed()
+to honour rate limiting, cost tracking, and audit trail — same as inference.
 """
 
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from typing import Any
-
-from openai import AsyncOpenAI
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    Distance, VectorParams, PointStruct,
-    Filter, FieldCondition, MatchValue,
-)
 
 from app.core.config import get_settings
 
 COLLECTION = "regulations"
-EMBED_MODEL = "nvidia/nv-embedqa-e5-v5"
+EMBED_MODEL = "nvidia/nv-embed-v2"
 VECTOR_SIZE = 1024
-CHUNK_SIZE  = 800   # chars
-CHUNK_OVERLAP = 100
+CHUNK_SIZE   = 800   # chars per chunk
+CHUNK_OVERLAP = 100  # overlap between consecutive chunks
+
+logger = logging.getLogger(__name__)
 
 
 def _chunk_text(text: str) -> list[str]:
-    """Split text into overlapping chunks of ~CHUNK_SIZE chars."""
+    """Split text into overlapping ~CHUNK_SIZE-char windows."""
     chunks, start = [], 0
     while start < len(text):
         end = min(start + CHUNK_SIZE, len(text))
@@ -43,34 +37,48 @@ def _chunk_text(text: str) -> list[str]:
 
 
 class RAGService:
-    """Thin wrapper around Qdrant + NVIDIA embeddings."""
+    """Async Qdrant RAG — embeddings routed through AIOrchestrator."""
 
     def __init__(self):
-        s = get_settings()
-        self._openai = AsyncOpenAI(
-            base_url=s.nvidia_base_url,
-            api_key=s.nvidia_api_key or "missing",
-            timeout=30.0,
-        )
-        self._qdrant = QdrantClient(url=s.qdrant_url)
-        self._ensure_collection()
+        self._orch = None    # lazy — avoids circular import on module load
+        self._qdrant = None  # AsyncQdrantClient, created on first use
 
-    def _ensure_collection(self):
-        existing = {c.name for c in self._qdrant.get_collections().collections}
-        if COLLECTION not in existing:
-            self._qdrant.create_collection(
-                collection_name=COLLECTION,
-                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-            )
+    def _get_orch(self):
+        if self._orch is None:
+            from app.services.ai_orchestrator import get_orchestrator
+            self._orch = get_orchestrator()
+        return self._orch
 
-    async def _embed(self, text: str, input_type: str = "passage") -> list[float]:
-        resp = await self._openai.embeddings.create(
-            model=EMBED_MODEL,
-            input=text[:2000],  # model hard limit
-            encoding_format="float",
-            extra_body={"input_type": input_type, "truncate": "END"},
-        )
-        return resp.data[0].embedding
+    def _get_qdrant(self):
+        if self._qdrant is None:
+            from qdrant_client import AsyncQdrantClient
+            self._qdrant = AsyncQdrantClient(url=get_settings().qdrant_url)
+        return self._qdrant
+
+    async def ensure_collection(self) -> bool:
+        """Idempotent: create the Qdrant collection if it doesn't exist."""
+        try:
+            from qdrant_client.models import Distance, VectorParams
+            client = self._get_qdrant()
+            existing = {c.name for c in (await client.get_collections()).collections}
+            if COLLECTION not in existing:
+                await client.create_collection(
+                    collection_name=COLLECTION,
+                    vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+                )
+                logger.info("Created Qdrant collection '%s'", COLLECTION)
+            return True
+        except Exception as e:
+            logger.warning("Qdrant ensure_collection failed: %s", e)
+            return False
+
+    async def _embed_passage(self, text: str, tenant_id: str) -> list[float] | None:
+        vectors = await self._get_orch().embed([text[:2000]], tenant_id=tenant_id)
+        return vectors[0] if vectors else None
+
+    async def _embed_query(self, text: str, tenant_id: str) -> list[float] | None:
+        vectors = await self._get_orch().embed([text], tenant_id=tenant_id)
+        return vectors[0] if vectors else None
 
     async def index_regulation(
         self,
@@ -80,20 +88,32 @@ class RAGService:
         code: str,
         title: str,
         text: str,
+        tenant_id: str = "polkorp",
     ) -> int:
-        """Chunk, embed, and upsert a regulation into Qdrant. Returns chunk count."""
-        # Remove stale points for this regulation first
-        self._qdrant.delete(
-            collection_name=COLLECTION,
-            points_selector=Filter(
-                must=[FieldCondition(key="regulation_id", match=MatchValue(value=regulation_id))]
-            ),
-        )
+        """Chunk, embed, and upsert a regulation. Returns number of chunks indexed."""
+        from qdrant_client.models import Filter, FieldCondition, MatchValue, PointStruct
+
+        client = self._get_qdrant()
+
+        # Remove stale points for this regulation
+        try:
+            await client.delete(
+                collection_name=COLLECTION,
+                points_selector=Filter(
+                    must=[FieldCondition(
+                        key="regulation_id", match=MatchValue(value=regulation_id)
+                    )]
+                ),
+            )
+        except Exception:
+            pass
 
         chunks = _chunk_text(f"{title}\n\n{text}")
         points = []
         for i, chunk in enumerate(chunks):
-            vec = await self._embed(chunk, input_type="passage")
+            vec = await self._embed_passage(chunk, tenant_id=tenant_id)
+            if vec is None:
+                continue
             point_id = str(uuid.UUID(
                 bytes=hashlib.md5(f"{regulation_id}:{i}".encode()).digest()
             ))
@@ -102,6 +122,7 @@ class RAGService:
                 vector=vec,
                 payload={
                     "regulation_id": regulation_id,
+                    "tenant_id": tenant_id,
                     "country": country,
                     "regulator": regulator,
                     "code": code,
@@ -112,40 +133,48 @@ class RAGService:
             ))
 
         if points:
-            self._qdrant.upsert(collection_name=COLLECTION, points=points)
+            await client.upsert(collection_name=COLLECTION, points=points)
         return len(points)
 
     async def retrieve(
         self,
         query: str,
-        top_k: int = 5,
+        tenant_id: str,
+        top_k: int = 4,
         country_filter: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Embed query, retrieve top-K relevant regulation chunks."""
-        vec = await self._embed(query, input_type="query")
+        """Embed query and return top-K relevant chunks filtered by tenant."""
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-        search_filter = None
+        vec = await self._embed_query(query, tenant_id=tenant_id)
+        if vec is None:
+            return []
+
+        must = [FieldCondition(key="tenant_id", match=MatchValue(value=tenant_id))]
         if country_filter:
-            search_filter = Filter(
-                must=[FieldCondition(key="country", match=MatchValue(value=country_filter))]
-            )
+            must.append(FieldCondition(key="country", match=MatchValue(value=country_filter)))
 
-        hits = self._qdrant.search(
-            collection_name=COLLECTION,
-            query_vector=vec,
-            limit=top_k,
-            query_filter=search_filter,
-            with_payload=True,
-            score_threshold=0.4,
-        )
+        try:
+            hits = await self._get_qdrant().search(
+                collection_name=COLLECTION,
+                query_vector=vec,
+                limit=top_k,
+                query_filter=Filter(must=must),
+                with_payload=True,
+                score_threshold=0.35,
+            )
+        except Exception as e:
+            logger.warning("Qdrant search failed: %s", e)
+            return []
+
         return [
             {
-                "score": h.score,
+                "score": round(h.score, 4),
                 "text": h.payload.get("text", ""),
-                "regulator": h.payload.get("regulator"),
-                "code": h.payload.get("code"),
-                "country": h.payload.get("country"),
-                "title": h.payload.get("title"),
+                "regulator": h.payload.get("regulator", ""),
+                "code": h.payload.get("code", ""),
+                "country": h.payload.get("country", ""),
+                "title": h.payload.get("title", ""),
             }
             for h in hits
         ]
@@ -153,23 +182,23 @@ class RAGService:
     async def context_for_query(
         self,
         question: str,
+        tenant_id: str = "polkorp",
         top_k: int = 4,
     ) -> str:
         """Return a formatted context block ready to inject into a Copilot prompt."""
-        chunks = await self.retrieve(question, top_k=top_k)
+        chunks = await self.retrieve(question, tenant_id=tenant_id, top_k=top_k)
         if not chunks:
             return ""
-
-        lines = ["## Regulatory context retrieved from ComplianceOS knowledge base:\n"]
+        lines = ["## Regulatory context (ComplianceOS knowledge base):\n"]
         for i, c in enumerate(chunks, 1):
             lines.append(
-                f"[{i}] {c['regulator']} {c['code']} ({c['country']}) — score {c['score']:.2f}\n"
+                f"[{i}] {c['regulator']} {c['code']} ({c['country']}) — relevance {c['score']}\n"
                 f"{c['text']}\n"
             )
         return "\n".join(lines)
 
-    async def index_all_regulations(self) -> dict[str, Any]:
-        """Re-index every regulation currently in the DB. Returns stats."""
+    async def index_all_regulations(self, tenant_id: str = "polkorp") -> dict[str, Any]:
+        """Re-index every regulation in the DB. Useful for backfill. Returns stats."""
         from app.db.base import AsyncSessionLocal
         from app.db.models import Regulation
         from sqlalchemy import select, update
@@ -178,22 +207,20 @@ class RAGService:
             result = await session.execute(select(Regulation))
             regulations = result.scalars().all()
 
-        total_chunks = 0
-        indexed = []
+        total_chunks, indexed = 0, []
         for reg in regulations:
-            text = reg.full_text or reg.title
             chunks = await self.index_regulation(
                 regulation_id=str(reg.id),
                 country=reg.country,
                 regulator=reg.regulator,
                 code=reg.code,
                 title=reg.title,
-                text=text,
+                text=reg.full_text or reg.title,
+                tenant_id=tenant_id,
             )
             total_chunks += chunks
             indexed.append({"code": reg.code, "country": reg.country, "chunks": chunks})
 
-            # Mark as indexed in DB
             async with AsyncSessionLocal() as session:
                 await session.execute(
                     update(Regulation)
@@ -202,7 +229,11 @@ class RAGService:
                 )
                 await session.commit()
 
-        return {"regulations_indexed": len(indexed), "total_chunks": total_chunks, "detail": indexed}
+        return {
+            "regulations_indexed": len(indexed),
+            "total_chunks": total_chunks,
+            "detail": indexed,
+        }
 
 
 _rag: RAGService | None = None

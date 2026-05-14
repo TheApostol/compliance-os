@@ -46,6 +46,14 @@ async def lifespan(app: FastAPI):
     get_orchestrator().set_audit_callback(_audit_callback)
     logger.info("Audit log wired to AI orchestrator")
 
+    # Ensure Qdrant RAG collection exists (idempotent)
+    try:
+        from app.services.rag import get_rag
+        await get_rag().ensure_collection()
+        logger.info("Qdrant RAG collection ready")
+    except Exception as e:
+        logger.warning("Qdrant not available at startup: %s", e)
+
     logger.info(f"Starting {settings.app_name} ({settings.app_env})")
     logger.info(f"NVIDIA configured: {settings.has_nvidia}")
     if not settings.has_nvidia:
@@ -53,7 +61,17 @@ async def lifespan(app: FastAPI):
             "NVIDIA_API_KEY not set — AI endpoints will return 'missing key' errors. "
             "Get a key at https://build.nvidia.com and add it to .env"
         )
+
+    # Start regulatory crawler scheduler (BCRA every 6h, UIF every 12h)
+    _scheduler = None
+    if settings.crawler_enabled:
+        from app.modules.crawler.scheduler import start_scheduler
+        _scheduler = start_scheduler()
+
     yield
+
+    if _scheduler:
+        _scheduler.shutdown()
     logger.info("Shutting down")
 
 
