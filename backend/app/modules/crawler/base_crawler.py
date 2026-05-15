@@ -5,12 +5,13 @@ Subclasses implement fetch_index() and fetch_document().
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -28,6 +29,30 @@ class IndexEntry:
     published_at: datetime | None = None
 
 
+@dataclass
+class CrawlerResult:
+    regulator: str
+    country: str
+    crawled: int
+    skipped_duplicate: int
+    errors: int
+    documents: list[dict]
+    run_duration_seconds: float
+    timestamp: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "regulator": self.regulator,
+            "country": self.country,
+            "crawled": self.crawled,
+            "skipped_duplicate": self.skipped_duplicate,
+            "errors": self.errors,
+            "documents": self.documents,
+            "run_duration_seconds": self.run_duration_seconds,
+            "timestamp": self.timestamp,
+        }
+
+
 class BaseCrawler(ABC):
     def __init__(self, regulator: str, country: str):
         self.regulator = regulator
@@ -43,23 +68,21 @@ class BaseCrawler(ABC):
         """Return (content_bytes, content_type) where content_type is 'pdf' or 'html'."""
         ...
 
-    async def run(self, tenant_id: str = "polkorp") -> dict[str, Any]:
-        """Fetch index, dedup, parse new documents through M1. Returns run stats."""
-        stats: dict[str, Any] = {
-            "regulator": self.regulator,
-            "country": self.country,
-            "crawled": 0,
-            "skipped_duplicate": 0,
-            "errors": 0,
-            "documents": [],
-        }
+    async def run(self, tenant_id: str = "polkorp") -> CrawlerResult:
+        """Fetch index, dedup, parse new documents through M1. Returns CrawlerResult."""
+        start_time = datetime.now(tz=timezone.utc)
+
+        crawled = 0
+        skipped_duplicate = 0
+        errors = 0
+        documents: list[dict] = []
 
         try:
             index = await self.fetch_index()
         except Exception as e:
             logger.error("%s index fetch failed: %s", self.regulator, e)
-            stats["errors"] += 1
-            return stats
+            errors += 1
+            index = []
 
         for entry in index[:MAX_DOCS_PER_RUN]:
             try:
@@ -67,7 +90,7 @@ class BaseCrawler(ABC):
                 source_hash = hashlib.sha256(content_bytes).hexdigest()
 
                 if await self._already_processed(source_hash):
-                    stats["skipped_duplicate"] += 1
+                    skipped_duplicate += 1
                     continue
 
                 doc_result = await self._process_document(
@@ -79,17 +102,29 @@ class BaseCrawler(ABC):
                     source_hash=source_hash,
                     tenant_id=tenant_id,
                 )
-                stats["crawled"] += 1
-                stats["documents"].append({
+                crawled += 1
+                documents.append({
                     "title": entry.title,
                     "url": entry.url,
                     "obligations_parsed": doc_result.get("obligations_persisted", 0),
                 })
             except Exception as e:
                 logger.warning("%s document error %s: %s", self.regulator, entry.url, e)
-                stats["errors"] += 1
+                errors += 1
 
-        return stats
+        end_time = datetime.now(tz=timezone.utc)
+        duration = (end_time - start_time).total_seconds()
+
+        return CrawlerResult(
+            regulator=self.regulator,
+            country=self.country,
+            crawled=crawled,
+            skipped_duplicate=skipped_duplicate,
+            errors=errors,
+            documents=documents,
+            run_duration_seconds=round(duration, 2),
+            timestamp=end_time.isoformat(),
+        )
 
     async def _already_processed(self, source_hash: str) -> bool:
         """True if this exact document (by SHA-256) is already in the DB."""
@@ -182,10 +217,26 @@ class BaseCrawler(ABC):
             logger.warning("stamp_source_hash failed: %s", e)
 
     @staticmethod
-    async def _get(url: str, timeout: float = CRAWL_TIMEOUT) -> httpx.Response:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=timeout,
-            headers={"User-Agent": "ComplianceOS/0.2 (+https://complianceos.io/bot)"},
-        ) as client:
-            return await client.get(url)
+    async def _get(url: str, timeout: float = CRAWL_TIMEOUT, retries: int = 3) -> httpx.Response:
+        """Fetch URL with exponential backoff retry on network errors or 5xx responses."""
+        last_exc: Exception | None = None
+        resp: httpx.Response | None = None
+        for attempt in range(retries):
+            try:
+                async with httpx.AsyncClient(
+                    follow_redirects=True,
+                    timeout=timeout,
+                    headers={"User-Agent": "ComplianceOS/0.2 (+https://complianceos.io/bot)"},
+                ) as client:
+                    resp = await client.get(url)
+                    if resp.status_code < 500:  # don't retry 4xx
+                        return resp
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                last_exc = e
+                if attempt < retries - 1:
+                    await asyncio.sleep(2 ** attempt * 2)
+        if last_exc:
+            raise last_exc
+        # resp will be set if we got a 5xx on the last attempt
+        assert resp is not None
+        return resp

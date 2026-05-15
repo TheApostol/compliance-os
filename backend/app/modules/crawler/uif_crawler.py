@@ -25,47 +25,78 @@ class UIFCrawler(BaseCrawler):
         super().__init__(regulator="UIF", country="AR")
 
     async def fetch_index(self) -> list[IndexEntry]:
-        resp = await self._get(UIF_INDEX_URL)
-        resp.raise_for_status()
+        """Scrape UIF normativa index. Returns empty list on non-200 (logs warning)."""
+        try:
+            resp = await self._get(UIF_INDEX_URL)
+        except Exception as e:
+            logger.warning("UIF index network error: %s", e)
+            return []
+
+        if resp.status_code != 200:
+            logger.warning("UIF index returned HTTP %s — skipping run", resp.status_code)
+            return []
+
         return self._parse_index_html(resp.text)
 
     def _parse_index_html(self, html: str) -> list[IndexEntry]:
         entries: list[IndexEntry] = []
 
-        # UIF index lists links like: <a href="/uif/...">Resolución UIF N° 30/2017</a>
-        pattern = re.compile(
-            r'<a\s+href="([^"]*(?:normativa|resolucion|res_uif)[^"]*)"[^>]*>(.*?)</a>',
+        # Collect all <a href="...">...</a> matches
+        anchor_pattern = re.compile(
+            r'<a\s[^>]*href="([^"]*)"[^>]*>(.*?)</a>',
             re.IGNORECASE | re.DOTALL,
         )
-        for match in pattern.finditer(html):
-            href = match.group(1).strip()
-            link_text = re.sub(r'<[^>]+>', '', match.group(2)).strip()
 
-            if not link_text or len(link_text) < 5:
+        # Anchor text keywords that signal a regulatory document
+        text_keywords = re.compile(
+            r"Resoluci[oó]n|Resoluciones|Circular|\d{4}",
+            re.IGNORECASE,
+        )
+
+        for match in anchor_pattern.finditer(html):
+            href = match.group(1).strip()
+            link_text = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+
+            # Accept the link if EITHER:
+            #   (a) href ends with .pdf  OR
+            #   (b) anchor text contains regulatory keywords
+            is_pdf_link = bool(re.search(r"\.pdf$", href, re.IGNORECASE))
+            is_keyword_match = bool(text_keywords.search(link_text))
+
+            if not (is_pdf_link or is_keyword_match):
                 continue
+
+            if not link_text or len(link_text) < 3:
+                link_text = href.rstrip("/").split("/")[-1]
 
             url = href if href.startswith("http") else f"{UIF_BASE_URL}{href}"
 
-            # Try to extract date from link text (e.g. "Res. 30/2017" → year only)
-            year_match = re.search(r'/(\d{4})', link_text)
-            pub_date = None
-            if year_match:
-                try:
-                    pub_date = datetime(int(year_match.group(1)), 1, 1)
-                except ValueError:
-                    pass
+            # Try to extract date — year from link text (e.g. "Res. 30/2017" → 2017)
+            pub_date = self._extract_year(link_text)
 
             entries.append(IndexEntry(url=url, title=link_text, published_at=pub_date))
 
-        # Deduplicate by URL
+        return self._deduplicate(entries)[:50]
+
+    @staticmethod
+    def _extract_year(text: str) -> datetime | None:
+        year_match = re.search(r"/(\d{4})", text)
+        if year_match:
+            try:
+                return datetime(int(year_match.group(1)), 1, 1)
+            except ValueError:
+                pass
+        return None
+
+    @staticmethod
+    def _deduplicate(entries: list[IndexEntry]) -> list[IndexEntry]:
         seen: set[str] = set()
         unique: list[IndexEntry] = []
         for e in entries:
             if e.url not in seen:
                 seen.add(e.url)
                 unique.append(e)
-
-        return unique[:50]
+        return unique
 
     async def fetch_document(self, url: str) -> tuple[bytes, str]:
         resp = await self._get(url)

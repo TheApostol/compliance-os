@@ -11,23 +11,25 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from app.modules.crawler.base_crawler import CrawlerResult
+
 logger = logging.getLogger(__name__)
 
 
 async def run_bcra(tenant_id: str = "polkorp") -> dict[str, Any]:
     from app.modules.crawler.bcra_crawler import BCRACrawler
     crawler = BCRACrawler()
-    result = await crawler.run(tenant_id=tenant_id)
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
     logger.info("BCRA crawl complete: %s", result)
-    return result
+    return result.to_dict()
 
 
 async def run_uif(tenant_id: str = "polkorp") -> dict[str, Any]:
     from app.modules.crawler.uif_crawler import UIFCrawler
     crawler = UIFCrawler()
-    result = await crawler.run(tenant_id=tenant_id)
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
     logger.info("UIF crawl complete: %s", result)
-    return result
+    return result.to_dict()
 
 
 async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
