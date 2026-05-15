@@ -174,4 +174,22 @@ T3 must precede T4 (crawler needs embed). T5 and T6 are independent of each othe
 
 ## Review
 
-_To be filled in after each task completes._
+**Completed 2026-05-15.** All 6 tasks implemented, tested, and pushed to `claude/workflow-orchestration-system-1Hx7Y`.
+
+| Task | Status | Key files |
+|---|---|---|
+| T1 — Orchestrator verify | ✅ | `ai_orchestrator.py` — embed() added, routing verified |
+| T2 — M6 Evidence | ✅ | `evidence/engine.py` — dedup + obligation matching |
+| T3 — Qdrant RAG | ✅ | `services/rag.py` — async, orchestrator-routed embeddings |
+| T4 — Crawler | ✅ | `modules/crawler/` — BCRA + UIF + APScheduler |
+| T5 — Compliance graph | ✅ | `services/graph_service.py` — recursive CTE traversal |
+| T6 — Auth | ✅ | `core/auth.py` — HS256 JWT + dev fallback |
+
+**Also shipped:** 105-test pytest suite (orchestrator, auth, evidence, RAG, graph, API) + frontend update (JWT login, M6 evidence upload, graph stats, crawler status panels).
+
+**Known gaps for next sprint:**
+- Alembic migration history (currently `create_all` only)
+- `.env` bootstrap guide / `make init` target
+- Frontend: the regulatory, KYC, monitoring, governance panels still use stub forms — wire them to real inputs
+- BCRA/UIF HTML scraping may need tuning once live site structure is confirmed
+- Graph entity linkage (APPLIES_TO edges) not yet auto-generated — needs entity registry
