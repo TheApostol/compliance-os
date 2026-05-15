@@ -8,12 +8,16 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
 from app.db.base import Base, engine
 
+configure_logging()
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -94,6 +98,11 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Audit-ID"],
 )
 
+from app.middleware.request_id import RequestIDMiddleware  # noqa: E402
+app.add_middleware(RequestIDMiddleware)
+
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(v1_router)
 

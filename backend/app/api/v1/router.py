@@ -50,6 +50,54 @@ async def health():
     return {"status": "ok", "version": "0.2.0"}
 
 
+@router.get("/health/detailed")
+async def health_detailed():
+    """
+    Deep health check: verifies connectivity to Postgres, Qdrant, and Redis.
+    Returns per-service status. Never raises — always returns 200 with statuses.
+    Safe to use as a liveness + readiness probe.
+    """
+    import time
+    checks = {}
+
+    # Postgres
+    t = time.perf_counter()
+    try:
+        from app.db.base import AsyncSessionLocal
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        checks["postgres"] = {"status": "ok", "latency_ms": round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:
+        checks["postgres"] = {"status": "error", "error": str(e)[:100]}
+
+    # Qdrant
+    t = time.perf_counter()
+    try:
+        from qdrant_client import AsyncQdrantClient
+        from app.core.config import get_settings
+        client = AsyncQdrantClient(url=get_settings().qdrant_url)
+        await client.get_collections()
+        checks["qdrant"] = {"status": "ok", "latency_ms": round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:
+        checks["qdrant"] = {"status": "error", "error": str(e)[:100]}
+
+    # Redis
+    t = time.perf_counter()
+    try:
+        import redis.asyncio as aioredis
+        from app.core.config import get_settings
+        r = aioredis.from_url(get_settings().redis_url, socket_connect_timeout=3)
+        await r.ping()
+        await r.aclose()
+        checks["redis"] = {"status": "ok", "latency_ms": round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:
+        checks["redis"] = {"status": "error", "error": str(e)[:100]}
+
+    overall = "ok" if all(v.get("status") == "ok" for v in checks.values()) else "degraded"
+    return {"status": overall, "version": "0.2.0", "services": checks}
+
+
 @router.get("/meta/models")
 async def list_models():
     """Available AI models and their roles."""
