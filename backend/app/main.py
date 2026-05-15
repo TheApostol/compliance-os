@@ -19,6 +19,7 @@ from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
 from app.db.base import Base, engine
 from app.middleware.rate_limit import limiter
+from app.middleware.metrics import setup_metrics
 
 configure_logging()
 
@@ -117,6 +118,8 @@ app.add_middleware(RequestIDMiddleware)
 
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
+
+setup_metrics(app)
 
 app.include_router(v1_router)
 
