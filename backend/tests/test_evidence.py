@@ -184,8 +184,11 @@ class TestScannedPdfBranch:
                 "app.modules.evidence.engine._extract_text_pymupdf",
                 return_value=("tiny", 4),  # 4 chars — well below the 50-char threshold
             ),
-            # Suppress best-effort RAG indexing
-            patch("app.modules.evidence.engine.get_rag", side_effect=Exception("no rag")),
+            # Suppress best-effort RAG indexing.
+            # get_rag is imported LOCALLY inside extract_from_pdf's try/except block,
+            # so we patch it at its definition site (app.services.rag).
+            # Any exception raised is silently swallowed by the try/except there.
+            patch("app.services.rag.get_rag", side_effect=Exception("no rag")),
         ):
             await engine.extract_from_pdf(
                 pdf_bytes=b"%PDF-1.4 fake",
@@ -235,7 +238,7 @@ class TestScannedPdfBranch:
                 "app.modules.evidence.engine._extract_text_pymupdf",
                 return_value=(long_text, len(long_text)),
             ),
-            patch("app.modules.evidence.engine.get_rag", side_effect=Exception("no rag")),
+            patch("app.services.rag.get_rag", side_effect=Exception("no rag")),
         ):
             await engine.extract_from_pdf(
                 pdf_bytes=b"%PDF-1.4 fake",
