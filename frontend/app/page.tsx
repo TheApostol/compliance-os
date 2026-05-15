@@ -12,6 +12,25 @@ function authHeaders(token: string | null): HeadersInit {
   return h
 }
 
+function tryParseJSON(str: string): [any, string | null] {
+  try { return [JSON.parse(str), null] }
+  catch (e: any) { return [null, e.message] }
+}
+
+const SEVERITY_COLORS: Record<string, string> = {
+  HIGH: 'bg-red-950 text-red-300 border border-red-900',
+  MEDIUM: 'bg-yellow-950 text-yellow-300 border border-yellow-900',
+  LOW: 'bg-zinc-800 text-zinc-300 border border-zinc-700',
+  CRITICAL: 'bg-red-950 text-red-200 border border-red-800',
+}
+
+const RISK_COLORS: Record<string, string> = {
+  LOW: 'bg-green-950 text-green-300 border border-green-900',
+  MEDIUM: 'bg-yellow-950 text-yellow-300 border border-yellow-900',
+  HIGH: 'bg-orange-950 text-orange-300 border border-orange-900',
+  CRITICAL: 'bg-red-950 text-red-300 border border-red-900',
+}
+
 export default function Home() {
   // ── Auth state ─────────────────────────────────────────────────────────────
   const [token, setToken] = useState<string | null>(null)
@@ -244,6 +263,264 @@ export default function Home() {
     }
   }
 
+  // ── M1 Regulatory state ────────────────────────────────────────────────────
+  const [regCountry, setRegCountry] = useState('AR')
+  const [regRegulator, setRegRegulator] = useState('BCRA')
+  const [regCode, setRegCode] = useState('Com. A 7825')
+  const [regTitle, setRegTitle] = useState('')
+  const [regText, setRegText] = useState('')
+  const [regParseResult, setRegParseResult] = useState<any>(null)
+  const [regParseLoading, setRegParseLoading] = useState(false)
+
+  const [mapTopic, setMapTopic] = useState('Suspicious Activity Reporting')
+  const [mapCountries, setMapCountries] = useState('AR,BR,MX')
+  const [mapResult, setMapResult] = useState<any>(null)
+  const [mapLoading, setMapLoading] = useState(false)
+
+  async function parseRegulation() {
+    if (!regText.trim()) return
+    setRegParseLoading(true)
+    setRegParseResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/regulatory/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({
+          country: regCountry,
+          regulator: regRegulator,
+          code: regCode,
+          title: regTitle,
+          text: regText,
+        }),
+      })
+      const data = await res.json()
+      setRegParseResult(data)
+    } catch (e: any) {
+      setRegParseResult({ error: e.message })
+    } finally {
+      setRegParseLoading(false)
+    }
+  }
+
+  async function mapCrossBorder() {
+    if (!mapTopic.trim()) return
+    setMapLoading(true)
+    setMapResult(null)
+    try {
+      const countries = mapCountries.split(',').map(c => c.trim()).filter(Boolean)
+      const res = await fetch(`${API_URL}/api/v1/regulatory/map`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ obligation_topic: mapTopic, countries }),
+      })
+      const data = await res.json()
+      setMapResult(data)
+    } catch (e: any) {
+      setMapResult({ error: e.message })
+    } finally {
+      setMapLoading(false)
+    }
+  }
+
+  // ── M3 KYC/AML state ──────────────────────────────────────────────────────
+  const DEFAULT_CUSTOMER_JSON = `{
+  "name": "Juan García",
+  "document_id": "20-12345678-9",
+  "document_type": "CUIT",
+  "nationality": "AR",
+  "pep": false,
+  "occupation": "Software Engineer",
+  "monthly_income_usd": 5000
+}`
+  const [kycCustomerJson, setKycCustomerJson] = useState(DEFAULT_CUSTOMER_JSON)
+  const [kycScreenResult, setKycScreenResult] = useState<any>(null)
+  const [kycScreenLoading, setKycScreenLoading] = useState(false)
+
+  const [sanctionName, setSanctionName] = useState('')
+  const [sanctionDocId, setSanctionDocId] = useState('')
+  const [sanctionCountry, setSanctionCountry] = useState('')
+  const [sanctionResult, setSanctionResult] = useState<any>(null)
+  const [sanctionLoading, setSanctionLoading] = useState(false)
+
+  const [kycJsonError, setKycJsonError] = useState<string | null>(null)
+
+  function onKycJsonChange(val: string) {
+    setKycCustomerJson(val)
+    const [, err] = tryParseJSON(val)
+    setKycJsonError(err)
+  }
+
+  async function screenCustomer() {
+    const [parsed, err] = tryParseJSON(kycCustomerJson)
+    if (err) return
+    setKycScreenLoading(true)
+    setKycScreenResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/kyc/screen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ customer_data: parsed }),
+      })
+      const data = await res.json()
+      setKycScreenResult(data)
+    } catch (e: any) {
+      setKycScreenResult({ error: e.message })
+    } finally {
+      setKycScreenLoading(false)
+    }
+  }
+
+  async function checkSanctions() {
+    if (!sanctionName.trim()) return
+    setSanctionLoading(true)
+    setSanctionResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/kyc/sanctions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({
+          subject_data: {
+            name: sanctionName,
+            document_id: sanctionDocId,
+            country: sanctionCountry,
+          },
+        }),
+      })
+      const data = await res.json()
+      setSanctionResult(data)
+    } catch (e: any) {
+      setSanctionResult({ error: e.message })
+    } finally {
+      setSanctionLoading(false)
+    }
+  }
+
+  // ── M4 Monitoring state ────────────────────────────────────────────────────
+  const DEFAULT_TX_JSON = `{
+  "period": "2026-05",
+  "total_transactions": 142,
+  "total_volume_usd": 87500,
+  "avg_ticket_usd": 616,
+  "flagged_count": 3,
+  "high_value_count": 8,
+  "cross_border_pct": 0.34
+}`
+  const [monTxJson, setMonTxJson] = useState(DEFAULT_TX_JSON)
+  const [monTxResult, setMonTxResult] = useState<any>(null)
+  const [monTxLoading, setMonTxLoading] = useState(false)
+  const [monTxJsonError, setMonTxJsonError] = useState<string | null>(null)
+
+  const [driftPolicy, setDriftPolicy] = useState('')
+  const [driftBehaviorJson, setDriftBehaviorJson] = useState('{}')
+  const [driftResult, setDriftResult] = useState<any>(null)
+  const [driftLoading, setDriftLoading] = useState(false)
+  const [driftJsonError, setDriftJsonError] = useState<string | null>(null)
+
+  function onMonTxJsonChange(val: string) {
+    setMonTxJson(val)
+    const [, err] = tryParseJSON(val)
+    setMonTxJsonError(err)
+  }
+
+  function onDriftJsonChange(val: string) {
+    setDriftBehaviorJson(val)
+    const [, err] = tryParseJSON(val)
+    setDriftJsonError(err)
+  }
+
+  async function analyzeTransactions() {
+    const [parsed, err] = tryParseJSON(monTxJson)
+    if (err) return
+    setMonTxLoading(true)
+    setMonTxResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/monitoring/transactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ transaction_summary: parsed }),
+      })
+      const data = await res.json()
+      setMonTxResult(data)
+    } catch (e: any) {
+      setMonTxResult({ error: e.message })
+    } finally {
+      setMonTxLoading(false)
+    }
+  }
+
+  async function detectDrift() {
+    const [parsed, err] = tryParseJSON(driftBehaviorJson)
+    if (err || !driftPolicy.trim()) return
+    setDriftLoading(true)
+    setDriftResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/monitoring/drift`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ policy_description: driftPolicy, observed_behavior: parsed }),
+      })
+      const data = await res.json()
+      setDriftResult(data)
+    } catch (e: any) {
+      setDriftResult({ error: e.message })
+    } finally {
+      setDriftLoading(false)
+    }
+  }
+
+  // ── M5 Governance state ────────────────────────────────────────────────────
+  const [govQuestion, setGovQuestion] = useState('')
+  const [govAiResponse, setGovAiResponse] = useState('')
+  const [govContext, setGovContext] = useState('')
+  const [govAuditResult, setGovAuditResult] = useState<any>(null)
+  const [govAuditLoading, setGovAuditLoading] = useState(false)
+
+  const [injectionText, setInjectionText] = useState('')
+  const [injectionResult, setInjectionResult] = useState<any>(null)
+  const [injectionLoading, setInjectionLoading] = useState(false)
+
+  async function auditAiResponse() {
+    if (!govQuestion.trim() || !govAiResponse.trim()) return
+    setGovAuditLoading(true)
+    setGovAuditResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/governance/audit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({
+          original_question: govQuestion,
+          ai_response: govAiResponse,
+          factual_context: govContext,
+        }),
+      })
+      const data = await res.json()
+      setGovAuditResult(data)
+    } catch (e: any) {
+      setGovAuditResult({ error: e.message })
+    } finally {
+      setGovAuditLoading(false)
+    }
+  }
+
+  async function checkInjection() {
+    if (!injectionText.trim()) return
+    setInjectionLoading(true)
+    setInjectionResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/governance/check-injection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ text: injectionText }),
+      })
+      const data = await res.json()
+      setInjectionResult(data)
+    } catch (e: any) {
+      setInjectionResult({ error: e.message })
+    } finally {
+      setInjectionLoading(false)
+    }
+  }
+
   // ── Login screen ───────────────────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
@@ -401,6 +678,657 @@ export default function Home() {
                           {typeof response.answer === 'string' ? response.answer : JSON.stringify(response.answer, null, 2)}
                         </div>
                       </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── M1 Regulatory Intelligence ───────────────────────────────── */}
+          {active === 'regulatory' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">M1 — Regulatory Intelligence</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Parse regulation text into structured obligations. Map cross-border obligations across jurisdictions.
+              </p>
+
+              {/* Parse Regulation */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-6">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Parse Regulation</div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Country (2-char)</label>
+                    <input
+                      type="text"
+                      value={regCountry}
+                      onChange={e => setRegCountry(e.target.value)}
+                      placeholder="AR"
+                      maxLength={2}
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Regulator</label>
+                    <input
+                      type="text"
+                      value={regRegulator}
+                      onChange={e => setRegRegulator(e.target.value)}
+                      placeholder="BCRA"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Code</label>
+                    <input
+                      type="text"
+                      value={regCode}
+                      onChange={e => setRegCode(e.target.value)}
+                      placeholder="Com. A 7825"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={regTitle}
+                    onChange={e => setRegTitle(e.target.value)}
+                    placeholder="Regulation title"
+                    className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Regulation text</label>
+                  <textarea
+                    value={regText}
+                    onChange={e => setRegText(e.target.value)}
+                    placeholder="Paste the full regulation text..."
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono min-h-40 focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <button
+                  onClick={parseRegulation}
+                  disabled={regParseLoading || !regText.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {regParseLoading ? 'Parsing...' : 'Parse Regulation'}
+                </button>
+
+                {regParseResult && (
+                  <div className="space-y-3">
+                    {(regParseResult.error || regParseResult.success === false) && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {regParseResult.error || regParseResult.detail || 'Parse failed'}
+                      </div>
+                    )}
+                    {regParseResult.success && (
+                      <div className="space-y-3">
+                        <div className="flex gap-4 text-xs text-zinc-500">
+                          <span>obligations persisted: <span className="font-mono text-zinc-300">{regParseResult.obligations_persisted ?? '—'}</span></span>
+                        </div>
+                        {regParseResult.summary && (
+                          <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md text-sm whitespace-pre-wrap">
+                            {regParseResult.summary}
+                          </div>
+                        )}
+                        {Array.isArray(regParseResult.obligations) && regParseResult.obligations.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs text-zinc-500">Obligations</div>
+                            {regParseResult.obligations.map((ob: any, i: number) => (
+                              <div key={i} className="p-3 bg-zinc-900 border border-zinc-800 rounded-md space-y-1">
+                                <div className="flex items-center gap-2">
+                                  {ob.obligation_code && (
+                                    <span className="font-mono text-xs text-zinc-400">{ob.obligation_code}</span>
+                                  )}
+                                  {ob.obligation_type && (
+                                    <span className="text-xs text-zinc-500">{ob.obligation_type}</span>
+                                  )}
+                                  {ob.severity && (
+                                    <span className={`text-xs px-1.5 py-0.5 rounded ${SEVERITY_COLORS[ob.severity] ?? 'bg-zinc-800 text-zinc-300'}`}>
+                                      {ob.severity}
+                                    </span>
+                                  )}
+                                </div>
+                                {ob.description && (
+                                  <div className="text-sm text-zinc-300">{ob.description}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Cross-border mapping */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Map Cross-Border Obligations</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Obligation topic</label>
+                  <input
+                    type="text"
+                    value={mapTopic}
+                    onChange={e => setMapTopic(e.target.value)}
+                    placeholder="Suspicious Activity Reporting"
+                    className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Countries (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={mapCountries}
+                    onChange={e => setMapCountries(e.target.value)}
+                    placeholder="AR,BR,MX"
+                    className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <button
+                  onClick={mapCrossBorder}
+                  disabled={mapLoading || !mapTopic.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {mapLoading ? 'Mapping...' : 'Map Jurisdictions'}
+                </button>
+
+                {mapResult && (
+                  <div className="space-y-3">
+                    {(mapResult.error || mapResult.success === false) && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {mapResult.error || mapResult.detail || 'Mapping failed'}
+                      </div>
+                    )}
+                    {mapResult.mapping?.jurisdictions && Array.isArray(mapResult.mapping.jurisdictions) && (
+                      <div className="border border-zinc-800 rounded-md overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-zinc-800 bg-zinc-900">
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Country</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Regulator</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Threshold USD</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Deadline (h)</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Penalties</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mapResult.mapping.jurisdictions.map((j: any, i: number) => (
+                              <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                <td className="px-4 py-2.5 font-mono text-xs text-zinc-300">{j.country ?? '—'}</td>
+                                <td className="px-4 py-2.5 text-xs">{j.regulator ?? '—'}</td>
+                                <td className="px-4 py-2.5 text-xs font-mono">{j.threshold_usd ?? '—'}</td>
+                                <td className="px-4 py-2.5 text-xs font-mono">{j.deadline_hours ?? '—'}</td>
+                                <td className="px-4 py-2.5 text-xs text-zinc-400">{j.penalties ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {mapResult.success && !mapResult.mapping?.jurisdictions && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md text-sm">
+                        <pre className="whitespace-pre-wrap text-zinc-300 text-xs">{JSON.stringify(mapResult, null, 2)}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── M3 KYC/AML ──────────────────────────────────────────────────── */}
+          {active === 'kyc' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">M3 — KYC/AML</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                AI-powered customer risk screening and sanctions checks. Powered by NVIDIA NIM.
+              </p>
+
+              {/* Screen customer */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-6">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Screen Customer</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Customer data (JSON)</label>
+                  <textarea
+                    value={kycCustomerJson}
+                    onChange={e => onKycJsonChange(e.target.value)}
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono min-h-48 focus:outline-none focus:border-zinc-600"
+                  />
+                  {kycJsonError && (
+                    <div className="text-red-400 text-xs mt-1">JSON error: {kycJsonError}</div>
+                  )}
+                </div>
+
+                <button
+                  onClick={screenCustomer}
+                  disabled={kycScreenLoading || !!kycJsonError}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {kycScreenLoading ? 'Screening...' : 'Screen Customer'}
+                </button>
+
+                {kycScreenResult && (
+                  <div className="space-y-3">
+                    {(kycScreenResult.error || kycScreenResult.success === false) && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {kycScreenResult.error || kycScreenResult.detail || 'Screening failed'}
+                      </div>
+                    )}
+                    {kycScreenResult.success !== false && !kycScreenResult.error && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {kycScreenResult.risk_level && (
+                            <span className={`px-2.5 py-1 rounded text-sm font-medium ${RISK_COLORS[kycScreenResult.risk_level] ?? 'bg-zinc-800 text-zinc-300'}`}>
+                              {kycScreenResult.risk_level}
+                            </span>
+                          )}
+                          {kycScreenResult.ai_risk_score !== undefined && (
+                            <span className="text-sm text-zinc-400">
+                              AI risk score: <span className="font-mono text-zinc-200">{kycScreenResult.ai_risk_score}<span className="text-zinc-500">/100</span></span>
+                            </span>
+                          )}
+                          {kycScreenResult.requires_human_review !== undefined && (
+                            <span className={`text-xs px-2 py-0.5 rounded border ${kycScreenResult.requires_human_review ? 'border-yellow-900 bg-yellow-950 text-yellow-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400'}`}>
+                              {kycScreenResult.requires_human_review ? 'Requires human review' : 'No human review required'}
+                            </span>
+                          )}
+                        </div>
+                        {Array.isArray(kycScreenResult.red_flags) && kycScreenResult.red_flags.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5">Red flags</div>
+                            <ul className="space-y-1">
+                              {kycScreenResult.red_flags.map((flag: string, i: number) => (
+                                <li key={i} className="text-sm text-red-300 flex items-start gap-2">
+                                  <span className="text-red-600 mt-0.5">&#x25CF;</span>{flag}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Sanctions check */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Sanctions Check</div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={sanctionName}
+                      onChange={e => setSanctionName(e.target.value)}
+                      placeholder="Full name"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Document ID</label>
+                    <input
+                      type="text"
+                      value={sanctionDocId}
+                      onChange={e => setSanctionDocId(e.target.value)}
+                      placeholder="e.g. 20-12345678-9"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Country</label>
+                    <input
+                      type="text"
+                      value={sanctionCountry}
+                      onChange={e => setSanctionCountry(e.target.value)}
+                      placeholder="AR"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={checkSanctions}
+                  disabled={sanctionLoading || !sanctionName.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {sanctionLoading ? 'Checking...' : 'Check Sanctions'}
+                </button>
+
+                {sanctionResult && (
+                  <div className="space-y-2">
+                    {sanctionResult.error && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {sanctionResult.error}
+                      </div>
+                    )}
+                    {!sanctionResult.error && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md">
+                        <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(sanctionResult, null, 2)}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── M4 Monitoring ───────────────────────────────────────────────── */}
+          {active === 'monitoring' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">M4 — Continuous Monitoring</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Analyze transaction patterns for anomalies, and detect policy drift in AI behavior.
+              </p>
+
+              {/* Transaction analysis */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-6">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Transaction Analysis</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Transaction summary (JSON)</label>
+                  <textarea
+                    value={monTxJson}
+                    onChange={e => onMonTxJsonChange(e.target.value)}
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono min-h-48 focus:outline-none focus:border-zinc-600"
+                  />
+                  {monTxJsonError && (
+                    <div className="text-red-400 text-xs mt-1">JSON error: {monTxJsonError}</div>
+                  )}
+                </div>
+
+                <button
+                  onClick={analyzeTransactions}
+                  disabled={monTxLoading || !!monTxJsonError}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {monTxLoading ? 'Analyzing...' : 'Analyze Transactions'}
+                </button>
+
+                {monTxResult && (
+                  <div className="space-y-3">
+                    {(monTxResult.error || monTxResult.success === false) && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {monTxResult.error || monTxResult.detail || 'Analysis failed'}
+                      </div>
+                    )}
+                    {monTxResult.success !== false && !monTxResult.error && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
+                        <div className="flex items-center gap-3">
+                          {monTxResult.risk_level && (
+                            <span className={`px-2.5 py-1 rounded text-sm font-medium ${RISK_COLORS[monTxResult.risk_level] ?? 'bg-zinc-800 text-zinc-300'}`}>
+                              {monTxResult.risk_level}
+                            </span>
+                          )}
+                        </div>
+                        {Array.isArray(monTxResult.anomalies) && monTxResult.anomalies.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5">Anomalies detected</div>
+                            <ul className="space-y-1">
+                              {monTxResult.anomalies.map((a: any, i: number) => (
+                                <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
+                                  <span className="text-yellow-600 mt-0.5">&#x25CF;</span>
+                                  {typeof a === 'string' ? a : JSON.stringify(a)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {Array.isArray(monTxResult.recommendations) && monTxResult.recommendations.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5">Recommendations</div>
+                            <ul className="space-y-1">
+                              {monTxResult.recommendations.map((r: any, i: number) => (
+                                <li key={i} className="text-sm text-zinc-400">
+                                  {typeof r === 'string' ? r : JSON.stringify(r)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {!monTxResult.risk_level && !monTxResult.anomalies && (
+                          <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(monTxResult, null, 2)}</pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Policy drift detection */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Policy Drift Detection</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Policy description</label>
+                  <textarea
+                    value={driftPolicy}
+                    onChange={e => setDriftPolicy(e.target.value)}
+                    placeholder="Describe the expected policy or control behavior..."
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm min-h-24 focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Observed behavior (JSON)</label>
+                  <textarea
+                    value={driftBehaviorJson}
+                    onChange={e => onDriftJsonChange(e.target.value)}
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono min-h-32 focus:outline-none focus:border-zinc-600"
+                  />
+                  {driftJsonError && (
+                    <div className="text-red-400 text-xs mt-1">JSON error: {driftJsonError}</div>
+                  )}
+                </div>
+
+                <button
+                  onClick={detectDrift}
+                  disabled={driftLoading || !!driftJsonError || !driftPolicy.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {driftLoading ? 'Detecting...' : 'Detect Drift'}
+                </button>
+
+                {driftResult && (
+                  <div className="space-y-3">
+                    {(driftResult.error || driftResult.success === false) && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {driftResult.error || driftResult.detail || 'Drift detection failed'}
+                      </div>
+                    )}
+                    {driftResult.success !== false && !driftResult.error && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
+                        <div className="flex items-center gap-3">
+                          {driftResult.drift_detected !== undefined && (
+                            <span className={`px-2.5 py-1 rounded text-sm font-medium border ${driftResult.drift_detected ? 'bg-red-950 text-red-300 border-red-900' : 'bg-green-950 text-green-300 border-green-900'}`}>
+                              {driftResult.drift_detected ? 'Drift detected' : 'No drift'}
+                            </span>
+                          )}
+                          {driftResult.drift_score !== undefined && (
+                            <span className="text-sm text-zinc-400">
+                              Score: <span className="font-mono text-zinc-200">{driftResult.drift_score}</span>
+                            </span>
+                          )}
+                        </div>
+                        {Array.isArray(driftResult.findings) && driftResult.findings.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5">Findings</div>
+                            <ul className="space-y-1">
+                              {driftResult.findings.map((f: any, i: number) => (
+                                <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
+                                  <span className="text-orange-500 mt-0.5">&#x25CF;</span>
+                                  {typeof f === 'string' ? f : JSON.stringify(f)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {driftResult.drift_detected === undefined && (
+                          <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(driftResult, null, 2)}</pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── M5 AI Governance ────────────────────────────────────────────── */}
+          {active === 'governance' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">M5 — AI Governance</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Audit AI responses for factual accuracy. Check inputs for prompt injection attempts.
+              </p>
+
+              {/* Audit AI response */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-6">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Audit AI Response</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Original question</label>
+                  <input
+                    type="text"
+                    value={govQuestion}
+                    onChange={e => setGovQuestion(e.target.value)}
+                    placeholder="What was asked to the AI?"
+                    className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">AI response</label>
+                  <textarea
+                    value={govAiResponse}
+                    onChange={e => setGovAiResponse(e.target.value)}
+                    placeholder="Paste the AI response to audit..."
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm min-h-32 focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Factual context (ground truth)</label>
+                  <textarea
+                    value={govContext}
+                    onChange={e => setGovContext(e.target.value)}
+                    placeholder="Provide factual context or source material to check against..."
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm min-h-24 focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <button
+                  onClick={auditAiResponse}
+                  disabled={govAuditLoading || !govQuestion.trim() || !govAiResponse.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {govAuditLoading ? 'Auditing...' : 'Audit Response'}
+                </button>
+
+                {govAuditResult && (
+                  <div className="space-y-3">
+                    {(govAuditResult.error || govAuditResult.success === false) && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {govAuditResult.error || govAuditResult.detail || 'Audit failed'}
+                      </div>
+                    )}
+                    {govAuditResult.success !== false && !govAuditResult.error && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {govAuditResult.verdict && (
+                            <span className={`px-2.5 py-1 rounded text-sm font-medium border ${govAuditResult.verdict === 'PASS' ? 'bg-green-950 text-green-300 border-green-900' : 'bg-red-950 text-red-300 border-red-900'}`}>
+                              {govAuditResult.verdict}
+                            </span>
+                          )}
+                          {govAuditResult.factual_accuracy !== undefined && (
+                            <span className="text-sm text-zinc-400">
+                              Factual accuracy: <span className="font-mono text-zinc-200">{govAuditResult.factual_accuracy}</span>
+                            </span>
+                          )}
+                        </div>
+                        {Array.isArray(govAuditResult.issues) && govAuditResult.issues.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5">Issues found</div>
+                            <ul className="space-y-1">
+                              {govAuditResult.issues.map((issue: any, i: number) => (
+                                <li key={i} className="text-sm text-red-300 flex items-start gap-2">
+                                  <span className="text-red-600 mt-0.5">&#x25CF;</span>
+                                  {typeof issue === 'string' ? issue : JSON.stringify(issue)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {!govAuditResult.verdict && !govAuditResult.factual_accuracy && (
+                          <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(govAuditResult, null, 2)}</pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Injection check */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Prompt Injection Check</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Text to check</label>
+                  <textarea
+                    value={injectionText}
+                    onChange={e => setInjectionText(e.target.value)}
+                    placeholder="Paste any user-submitted text to scan for injection patterns..."
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm min-h-28 focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <button
+                  onClick={checkInjection}
+                  disabled={injectionLoading || !injectionText.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {injectionLoading ? 'Checking...' : 'Check for Injection'}
+                </button>
+
+                {injectionResult && (
+                  <div className="space-y-3">
+                    {injectionResult.error && (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {injectionResult.error}
+                      </div>
+                    )}
+                    {!injectionResult.error && (
+                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
+                        <div className="flex items-center gap-3">
+                          {injectionResult.injected !== undefined && (
+                            <span className={`px-2.5 py-1 rounded text-sm font-medium border ${injectionResult.injected ? 'bg-red-950 text-red-300 border-red-900' : 'bg-green-950 text-green-300 border-green-900'}`}>
+                              {injectionResult.injected ? 'Injection detected' : 'Clean'}
+                            </span>
+                          )}
+                        </div>
+                        {Array.isArray(injectionResult.matched_patterns) && injectionResult.matched_patterns.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-1.5">Matched patterns</div>
+                            <ul className="space-y-1">
+                              {injectionResult.matched_patterns.map((p: string, i: number) => (
+                                <li key={i} className="text-sm font-mono text-red-300 px-2 py-1 bg-red-950 rounded">{p}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -721,19 +1649,6 @@ export default function Home() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* ── Other modules (placeholder) ───────────────────────────────── */}
-          {active !== 'copilot' && active !== 'evidence' && active !== 'graph' && active !== 'crawler' && (
-            <div className="p-12 text-center text-zinc-500 border border-dashed border-zinc-800 rounded-md">
-              Module <span className="font-mono text-zinc-300">{active}</span> UI coming soon.
-              <br />
-              <span className="text-xs">API endpoints already live at <code className="text-zinc-400">/api/v1/{active}/*</code></span>
-              <br />
-              <a href={`${API_URL}/docs`} target="_blank" className="text-zinc-300 underline mt-3 inline-block">
-                See API docs →
-              </a>
             </div>
           )}
         </section>
