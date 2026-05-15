@@ -22,6 +22,37 @@ from app.db.base import Base
 
 
 # ═══════════════════════════════════════════════════════════════════
+# COMPLIANCE ENTITIES (graph entity registry)
+# ═══════════════════════════════════════════════════════════════════
+
+class EntityType(str, enum.Enum):
+    COMPANY    = "company"
+    INDIVIDUAL = "individual"
+    SECTOR     = "sector"   # virtual entity representing a regulated sector
+
+
+class ComplianceEntity(Base):
+    """
+    Companies, individuals, or virtual sector nodes that are subject to
+    regulatory obligations.  APPLIES_TO edges in the compliance graph link
+    obligation vertices to entity vertices.
+    """
+    __tablename__ = "compliance_entities"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id   = Column(String(64), nullable=False, index=True)
+    name        = Column(String(255), nullable=False)
+    entity_type = Column(SAEnum(EntityType), nullable=False)
+    sectors     = Column(JSONB, default=list)   # ["PSP", "bank", "crypto"]
+    properties  = Column(JSONB, default=dict)
+    created_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_entity_tenant_type", "tenant_id", "entity_type"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
 # TENANT
 # ═══════════════════════════════════════════════════════════════════
 

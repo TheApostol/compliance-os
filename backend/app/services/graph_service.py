@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy import select, text
 from app.db.base import AsyncSessionLocal
-from app.db.models import GraphVertex, GraphEdge
+from app.db.models import GraphVertex, GraphEdge, ComplianceEntity, EntityType, Obligation
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +278,159 @@ class GraphService:
                 ]
 
         return {"entity_id": entity_id, "obligations": obligations}
+
+    # ── Entity Registry ──────────────────────────────────────────────────────
+
+    async def register_entity(
+        self,
+        tenant_id: str,
+        name: str,
+        entity_type: str,
+        sectors: list[str],
+        properties: dict | None = None,
+    ) -> dict[str, Any]:
+        """
+        Upsert a ComplianceEntity row, create/update its graph vertex, then
+        auto-wire APPLIES_TO edges to matching obligations.
+
+        Returns {"entity_id": str, "vertex_id": str, "obligations_linked": int}.
+        """
+        props = properties or {}
+
+        # Upsert ComplianceEntity row
+        async with AsyncSessionLocal() as session:
+            stmt = select(ComplianceEntity).where(
+                ComplianceEntity.tenant_id == tenant_id,
+                ComplianceEntity.name == name,
+                ComplianceEntity.entity_type == EntityType(entity_type),
+            )
+            entity = (await session.execute(stmt)).scalar_one_or_none()
+
+            if entity is None:
+                entity = ComplianceEntity(
+                    id=uuid.uuid4(),
+                    tenant_id=tenant_id,
+                    name=name,
+                    entity_type=EntityType(entity_type),
+                    sectors=sectors,
+                    properties=props,
+                )
+                session.add(entity)
+            else:
+                entity.sectors = sectors
+                entity.properties = {**(entity.properties or {}), **props}
+
+            await session.commit()
+            entity_db_id = str(entity.id)
+
+        # Upsert graph vertex for the entity
+        vertex_id = await self.upsert_vertex(
+            vertex_type="entity",
+            entity_id=entity_db_id,
+            label=name,
+            properties={"entity_type": entity_type, "sectors": sectors, "tenant_id": tenant_id, **props},
+        )
+
+        # Auto-wire to matching obligations
+        obligations_linked = await self._wire_entity_to_obligations(vertex_id, sectors, tenant_id)
+
+        return {
+            "entity_id": entity_db_id,
+            "vertex_id": vertex_id,
+            "obligations_linked": obligations_linked,
+        }
+
+    async def _wire_entity_to_obligations(
+        self,
+        entity_vertex_id: str,
+        sectors: list[str],
+        tenant_id: str | None = None,
+    ) -> int:
+        """
+        Find all Obligation rows whose applies_to_sectors overlaps with sectors,
+        then create APPLIES_TO edges from each obligation vertex → entity vertex.
+
+        Falls back to Python-side filtering (acceptable for small obligation sets).
+        Returns count of edges created.
+        """
+        if not sectors:
+            return 0
+
+        async with AsyncSessionLocal() as session:
+            all_obs = (await session.execute(select(Obligation))).scalars().all()
+            matching = [
+                o for o in all_obs
+                if any(s in (o.applies_to_sectors or []) for s in sectors)
+            ]
+
+        count = 0
+        for ob in matching:
+            # Find (or create) the obligation's graph vertex
+            async with AsyncSessionLocal() as session:
+                stmt = select(GraphVertex).where(
+                    GraphVertex.vertex_type == "obligation",
+                    GraphVertex.entity_id == ob.obligation_code,
+                )
+                obl_vertex = (await session.execute(stmt)).scalar_one_or_none()
+
+            if obl_vertex is None:
+                continue
+
+            await self.upsert_edge(str(obl_vertex.id), entity_vertex_id, "APPLIES_TO")
+            count += 1
+
+        return count
+
+    async def link_obligation_to_sectors(
+        self,
+        regulation_id: str,
+        obligations_data: list[dict],
+    ) -> dict[str, Any]:
+        """
+        For each obligation parsed by M1, create virtual 'sector' entity vertices
+        and wire APPLIES_TO edges: obligation_vertex → sector_vertex.
+
+        Called after add_regulation() in the M1 post-parse hook.
+        Returns {"sector_vertices": int, "edges_created": int}.
+        """
+        sector_vertex_count = 0
+        edge_count = 0
+
+        for obl in obligations_data:
+            obl_code = obl.get("obligation_code", "")
+            sectors = obl.get("applies_to_sectors", [])
+            if not obl_code or not sectors:
+                continue
+
+            # Find obligation vertex
+            async with AsyncSessionLocal() as session:
+                stmt = select(GraphVertex).where(
+                    GraphVertex.vertex_type == "obligation",
+                    GraphVertex.entity_id == obl_code,
+                )
+                obl_vertex = (await session.execute(stmt)).scalar_one_or_none()
+
+            if obl_vertex is None:
+                logger.debug("link_obligation_to_sectors: obligation vertex not found for %s", obl_code)
+                continue
+
+            for sector in sectors:
+                sector_entity_id = f"sector:{sector}"
+
+                # Upsert sector vertex
+                sector_vid = await self.upsert_vertex(
+                    vertex_type="entity",
+                    entity_id=sector_entity_id,
+                    label=sector,
+                    properties={"entity_type": "sector", "sector": sector},
+                )
+                sector_vertex_count += 1
+
+                # APPLIES_TO: obligation → sector
+                await self.upsert_edge(str(obl_vertex.id), sector_vid, "APPLIES_TO")
+                edge_count += 1
+
+        return {"sector_vertices": sector_vertex_count, "edges_created": edge_count}
 
     async def graph_stats(self) -> dict[str, Any]:
         """Return high-level graph statistics."""
