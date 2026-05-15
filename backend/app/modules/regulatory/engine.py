@@ -161,6 +161,11 @@ class RegulatoryIntelligence:
                     title=title,
                     obligations=obligations_data,
                 )
+                # Wire sector APPLIES_TO edges after vertices are created
+                await get_graph().link_obligation_to_sectors(
+                    regulation_id=reg_id,
+                    obligations_data=obligations_data,
+                )
             except Exception:
                 pass
 

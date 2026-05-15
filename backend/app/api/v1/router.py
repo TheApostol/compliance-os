@@ -487,3 +487,55 @@ async def graph_entity_obligations(entity_id: str):
     """Return all obligations that apply to a given entity in the graph."""
     from app.services.graph_service import get_graph
     return await get_graph().get_obligations_for_entity(entity_id=entity_id)
+
+
+class RegisterEntityRequest(BaseModel):
+    name: str = Field(..., examples=["Acme PSP S.A."])
+    entity_type: str = Field(..., examples=["company"])
+    sectors: list[str] = Field(default_factory=list, examples=[["PSP", "bank"]])
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/graph/entities", status_code=201)
+async def register_entity(
+    req: RegisterEntityRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    _user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Register a company or individual as a compliance entity and auto-link it
+    to all obligations that apply to its declared sectors via APPLIES_TO edges.
+    """
+    from app.services.graph_service import get_graph
+    return await get_graph().register_entity(
+        tenant_id=tenant_id,
+        name=req.name,
+        entity_type=req.entity_type,
+        sectors=req.sectors,
+        properties=req.properties,
+    )
+
+
+@router.get("/graph/entities")
+async def list_entities(
+    tenant_id: str = Depends(get_tenant_id),
+    _user: CurrentUser = Depends(get_current_user),
+):
+    """List all compliance entities registered for this tenant."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import ComplianceEntity
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(ComplianceEntity).where(ComplianceEntity.tenant_id == tenant_id)
+        entities = (await session.execute(stmt)).scalars().all()
+
+    return [
+        {
+            "entity_id": str(e.id),
+            "name": e.name,
+            "entity_type": e.entity_type.value,
+            "sectors": e.sectors or [],
+        }
+        for e in entities
+    ]
