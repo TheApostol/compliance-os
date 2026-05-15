@@ -6,6 +6,30 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler'
 
+function SkeletonRow({ cols = 3 }: { cols?: number }) {
+  return (
+    <tr className="border-b border-zinc-800">
+      {Array.from({ length: cols }).map((_, i) => (
+        <td key={i} className="px-4 py-3">
+          <div className="h-3 bg-zinc-800 rounded animate-pulse" style={{ width: `${60 + (i * 15) % 30}%` }} />
+        </td>
+      ))}
+    </tr>
+  )
+}
+
+function SkeletonTable({ rows = 4, cols = 3 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="border border-zinc-700 rounded-md overflow-hidden">
+      <table className="w-full">
+        <tbody>
+          {Array.from({ length: rows }).map((_, i) => <SkeletonRow key={i} cols={cols} />)}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function authHeaders(token: string | null): HeadersInit {
   const h: Record<string, string> = { 'X-Tenant-Id': 'polkorp' }
   if (token) h['Authorization'] = `Bearer ${token}`
@@ -90,6 +114,14 @@ export default function Home() {
   // ── Module state ───────────────────────────────────────────────────────────
   const [active, setActive] = useState<Module>('copilot')
 
+  // ── Toast state ────────────────────────────────────────────────────────────
+  const [successToast, setSuccessToast] = useState<string | null>(null)
+
+  function showToast(msg: string) {
+    setSuccessToast(msg)
+    setTimeout(() => setSuccessToast(null), 3000)
+  }
+
   // ── Copilot state ──────────────────────────────────────────────────────────
   const [question, setQuestion] = useState('')
   const [response, setResponse] = useState<any>(null)
@@ -162,6 +194,7 @@ export default function Home() {
       })
       const data = await res.json()
       setEvidenceResult(data)
+      if (!data.error) showToast('Document extracted successfully.')
       fetchEvidenceDocs()
     } catch (e: any) {
       setEvidenceResult({ error: e.message })
@@ -304,6 +337,7 @@ export default function Home() {
       })
       const data = await res.json()
       setRegParseResult(data)
+      if (data.success) showToast('Regulation parsed.')
     } catch (e: any) {
       setRegParseResult({ error: e.message })
     } finally {
@@ -637,6 +671,12 @@ export default function Home() {
         </aside>
 
         <section className="col-span-9">
+          {successToast && (
+            <div className="mb-4 px-4 py-2.5 bg-green-950 border border-green-800 rounded-md text-sm text-green-400 transition-opacity">
+              {successToast}
+            </div>
+          )}
+
           {/* ── Copilot ─────────────────────────────────────────────────────── */}
           {active === 'copilot' && (
             <div>
@@ -1439,9 +1479,11 @@ export default function Home() {
                     {evidenceDocsLoading ? 'Loading...' : 'Refresh'}
                   </button>
                 </div>
-                {evidenceDocs.length === 0 ? (
-                  <div className="text-sm text-zinc-600 border border-dashed border-zinc-800 rounded-md p-6 text-center">
-                    No documents yet.
+                {evidenceDocsLoading && evidenceDocs.length === 0 ? (
+                  <SkeletonTable rows={4} cols={5} />
+                ) : evidenceDocs.length === 0 ? (
+                  <div className="text-center py-10 text-zinc-600 text-sm">
+                    No documents uploaded yet.
                   </div>
                 ) : (
                   <div className="border border-zinc-800 rounded-md overflow-hidden">
@@ -1481,8 +1523,10 @@ export default function Home() {
                 Regulations, obligations, entities, and controls modeled as a relationship graph.
               </p>
 
-              {graphStatsLoading && (
-                <div className="text-sm text-zinc-500">Loading stats...</div>
+              {graphStatsLoading && !graphStats && (
+                <div className="mb-6">
+                  <SkeletonTable rows={4} cols={3} />
+                </div>
               )}
 
               {graphStats && !graphStats.error && (
@@ -1520,6 +1564,12 @@ export default function Home() {
               {graphStats?.error && (
                 <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200 mb-6">
                   Error: {graphStats.error}
+                  <button
+                    onClick={fetchGraphStats}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 underline ml-2"
+                  >
+                    retry
+                  </button>
                 </div>
               )}
 
@@ -1588,6 +1638,10 @@ export default function Home() {
                                 </tbody>
                               </table>
                             </div>
+                          </div>
+                        ) : Array.isArray(graphRegData.vertices) && graphRegData.vertices.length === 0 ? (
+                          <div className="text-center py-10 text-zinc-600 text-sm">
+                            No entities registered yet.
                           </div>
                         ) : (
                           Array.isArray(graphRegData.obligations) && graphRegData.obligations.length > 0 && (
@@ -1684,7 +1738,9 @@ export default function Home() {
               </p>
 
               {crawlerStatusLoading && !crawlerStatus && (
-                <div className="text-sm text-zinc-500">Loading status...</div>
+                <div className="mb-6">
+                  <SkeletonTable rows={2} cols={2} />
+                </div>
               )}
 
               {crawlerStatus && !crawlerStatus.error && (
@@ -1709,6 +1765,12 @@ export default function Home() {
               {crawlerStatus?.error && (
                 <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200 mb-6">
                   Error: {crawlerStatus.error}
+                  <button
+                    onClick={fetchCrawlerStatus}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 underline ml-2"
+                  >
+                    retry
+                  </button>
                 </div>
               )}
 
