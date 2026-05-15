@@ -193,3 +193,30 @@ T3 must precede T4 (crawler needs embed). T5 and T6 are independent of each othe
 - Frontend: the regulatory, KYC, monitoring, governance panels still use stub forms — wire them to real inputs
 - BCRA/UIF HTML scraping may need tuning once live site structure is confirmed
 - Graph entity linkage (APPLIES_TO edges) not yet auto-generated — needs entity registry
+
+---
+
+## Sprint 2 — Hardening & Gaps (2026-05-15)
+
+### Completed
+
+| Item | Status | Key files |
+|---|---|---|
+| `.env` bootstrap (`make init`) | ✅ | `Makefile`, `.env.example` |
+| Alembic migration baseline | ✅ | `backend/alembic/versions/0001_initial_schema.py` |
+| Frontend M1/M3/M4/M5 real forms | ✅ | `frontend/app/page.tsx` — parse + KYC + monitoring + governance panels |
+| BCRA multi-strategy parsing (3 strategies + fallback A7890–A7894) | ✅ | `crawler/bcra_crawler.py` |
+| UIF keyword + PDF detection, graceful non-200 | ✅ | `crawler/uif_crawler.py` |
+| Base crawler retry with exponential backoff + `CrawlerResult` dataclass | ✅ | `crawler/base_crawler.py` |
+| Graph entity registry + `APPLIES_TO` auto-generation | ✅ | `services/graph_service.py` — `register_entity()`, `_wire_entity_to_obligations()` |
+| Production hardening: structlog, `RequestIDMiddleware`, error handlers | ✅ | `core/logging.py`, `core/errors.py`, `middleware/request_id.py` |
+| Deep health check (`GET /health/detailed`) | ✅ | `api/v1/router.py` |
+| Crawler + health test suites | ✅ | `tests/test_crawlers.py` (20 tests), `tests/test_health.py` |
+
+### Remaining for Sprint 3
+- Alembic: generate proper versioned migrations for all new tables (ComplianceEntity, GraphVertex/Edge, User)
+- Frontend graph subgraph visualization (currently shows raw JSON)
+- Frontend real-time crawler status polling (currently manual refresh)
+- BCRA/UIF live site smoke test + adjust selectors if needed
+- JWT refresh token endpoint (`POST /auth/refresh`)
+- Rate limiting middleware (slowapi or manual token bucket)
