@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8-hour sessions
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
@@ -67,6 +68,44 @@ def create_access_token(
         "exp": expire,
     }
     return jwt.encode(payload, get_settings().app_secret_key, algorithm=ALGORITHM)
+
+
+def create_refresh_token(
+    user_id: str,
+    tenant_id: str,
+    role: str,
+    expires_delta: timedelta | None = None,
+) -> str:
+    expire = datetime.now(timezone.utc) + (
+        expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    )
+    payload = {
+        "sub": user_id,
+        "tenant_id": tenant_id,
+        "role": role,
+        "type": "refresh",
+        "exp": expire,
+    }
+    return jwt.encode(payload, get_settings().app_secret_key, algorithm=ALGORITHM)
+
+
+def decode_refresh_token(token: str) -> dict[str, Any]:
+    """Decode and validate a refresh JWT. Raises HTTPException 401 if invalid or wrong type."""
+    try:
+        payload = jwt.decode(token, get_settings().app_secret_key, algorithms=[ALGORITHM])
+    except JWTError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired refresh token: {e}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is not a refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
 
 
 def decode_token(token: str) -> dict[str, Any]:

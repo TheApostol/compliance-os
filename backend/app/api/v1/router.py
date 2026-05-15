@@ -8,9 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
+
+from app.middleware.rate_limit import limiter
 
 from app.modules.regulatory.engine import RegulatoryIntelligence
 from app.modules.copilot.copilot import ComplianceCopilot
@@ -21,7 +23,9 @@ from app.modules.evidence.engine import EvidenceEngine
 from app.services.ai_orchestrator import MODELS, ROUTING
 from app.core.auth import (
     CurrentUser, get_current_user, require_admin,
-    create_access_token, hash_password, verify_password,
+    create_access_token, create_refresh_token, decode_refresh_token,
+    hash_password, verify_password,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 from fastapi import UploadFile, File, Query
 
@@ -137,7 +141,9 @@ class MapCrossBorderRequest(BaseModel):
 
 
 @router.post("/regulatory/parse")
+@limiter.limit("30/minute")
 async def parse_regulation(
+    request: Request,
     req: ParseRegulationRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
@@ -182,7 +188,9 @@ class ExpansionAnalysisRequest(BaseModel):
 
 
 @router.post("/copilot/ask")
+@limiter.limit("30/minute")
 async def copilot_ask(
+    request: Request,
     req: CopilotAskRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
@@ -224,7 +232,9 @@ class SanctionsScreenRequest(BaseModel):
 
 
 @router.post("/kyc/screen")
+@limiter.limit("20/minute")
 async def kyc_screen(
+    request: Request,
     req: KYCScreenRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
@@ -263,7 +273,9 @@ class PolicyDriftRequest(BaseModel):
 
 
 @router.post("/monitoring/transactions")
+@limiter.limit("20/minute")
 async def monitor_transactions(
+    request: Request,
     req: TransactionAnalysisRequest,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -413,7 +425,17 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         tenant_id=user.tenant_id,
         role=user.role.value,
     )
-    return {"access_token": token, "token_type": "bearer"}
+    refresh = create_refresh_token(
+        user_id=str(user.id),
+        tenant_id=user.tenant_id,
+        role=user.role.value,
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "refresh_token": refresh,
+    }
 
 
 @router.post("/auth/register", status_code=201)
@@ -445,6 +467,26 @@ async def register_user(
         session.add(new_user)
         await session.commit()
         return {"success": True, "user_id": str(new_user.id), "email": new_user.email, "role": role.value}
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/auth/refresh")
+async def refresh_access_token(req: RefreshRequest):
+    """Exchange a valid refresh token for a new access token."""
+    claims = decode_refresh_token(req.refresh_token)
+    token = create_access_token(
+        user_id=claims["sub"],
+        tenant_id=claims["tenant_id"],
+        role=claims.get("role", "analyst"),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -496,7 +538,9 @@ async def crawler_status():
 
 
 @router.post("/crawler/run-now")
+@limiter.limit("5/minute")
 async def crawler_run_now(
+    request: Request,
     regulator: str | None = Query(default=None, description="bcra | uif | all"),
     tenant_id: str = Depends(get_tenant_id),
     admin: CurrentUser = Depends(require_admin),
