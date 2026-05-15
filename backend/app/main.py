@@ -7,15 +7,18 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
 from app.db.base import Base, engine
+from app.middleware.rate_limit import limiter
 
 configure_logging()
 
@@ -79,6 +82,14 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down")
 
 
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(
+        status_code=429,
+        content={"error": "rate limit exceeded", "request_id": request_id},
+    )
+
+
 app = FastAPI(
     title=settings.app_name,
     description="AI-native Compliance Operating System for LATAM Regulated Industries",
@@ -87,6 +98,9 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 
 app.add_middleware(
