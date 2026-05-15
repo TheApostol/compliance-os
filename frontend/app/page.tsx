@@ -218,6 +218,7 @@ export default function Home() {
   // ── Crawler state ──────────────────────────────────────────────────────────
   const [crawlerStatus, setCrawlerStatus] = useState<any>(null)
   const [crawlerStatusLoading, setCrawlerStatusLoading] = useState(false)
+  const [crawlerLastUpdated, setCrawlerLastUpdated] = useState<string | null>(null)
   const [crawlerRegulator, setCrawlerRegulator] = useState('all')
   const [crawlerRunResult, setCrawlerRunResult] = useState<any>(null)
   const [crawlerRunLoading, setCrawlerRunLoading] = useState(false)
@@ -225,6 +226,10 @@ export default function Home() {
   useEffect(() => {
     if (active === 'crawler') {
       fetchCrawlerStatus()
+      const interval = setInterval(() => {
+        fetchCrawlerStatus()
+      }, 30000)
+      return () => clearInterval(interval)
     }
   }, [active])
 
@@ -236,6 +241,10 @@ export default function Home() {
       })
       const data = await res.json()
       setCrawlerStatus(data)
+      const now = new Date()
+      setCrawlerLastUpdated(
+        now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      )
     } catch (e: any) {
       setCrawlerStatus({ error: e.message })
     } finally {
@@ -1514,9 +1523,9 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Regulation lookup */}
+              {/* Regulation subgraph lookup */}
               <div className="mt-8 space-y-3">
-                <div className="text-xs uppercase tracking-wider text-zinc-500">Regulation lookup</div>
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Subgraph lookup</div>
                 <div className="flex gap-3">
                   <input
                     type="text"
@@ -1535,28 +1544,110 @@ export default function Home() {
                   </button>
                 </div>
 
+                {!graphRegData && !graphRegLoading && (
+                  <div className="p-6 border border-dashed border-zinc-800 rounded-md text-sm text-zinc-600 text-center">
+                    No subgraph loaded — enter a regulation ID above
+                  </div>
+                )}
+
                 {graphRegData && (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {graphRegData.error && (
                       <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
                         Error: {graphRegData.error}
                       </div>
                     )}
                     {!graphRegData.error && (
-                      <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
+                      <div className="space-y-5">
                         <div className="flex gap-6 text-xs text-zinc-500">
-                          <span>vertices: <span className="font-mono text-zinc-300">{graphRegData.vertex_count ?? '—'}</span></span>
-                          <span>edges: <span className="font-mono text-zinc-300">{graphRegData.edge_count ?? '—'}</span></span>
+                          <span>vertices: <span className="font-mono text-zinc-300">{graphRegData.vertex_count ?? graphRegData.vertices?.length ?? '—'}</span></span>
+                          <span>edges: <span className="font-mono text-zinc-300">{graphRegData.edge_count ?? graphRegData.edges?.length ?? '—'}</span></span>
                         </div>
-                        {Array.isArray(graphRegData.obligations) && graphRegData.obligations.length > 0 && (
+
+                        {/* Vertices table */}
+                        {Array.isArray(graphRegData.vertices) && graphRegData.vertices.length > 0 ? (
                           <div>
-                            <div className="text-xs text-zinc-500 mb-2">Obligation vertices</div>
-                            <div className="space-y-1">
-                              {graphRegData.obligations.map((ob: any, i: number) => (
-                                <div key={i} className="text-sm font-mono text-zinc-300 px-2 py-1 bg-zinc-800 rounded">
-                                  {typeof ob === 'string' ? ob : ob.label ?? JSON.stringify(ob)}
-                                </div>
-                              ))}
+                            <div className="text-xs text-zinc-500 mb-2 uppercase tracking-wider">Vertices</div>
+                            <div className="border border-zinc-700 rounded-md overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b border-zinc-700 bg-zinc-900">
+                                    <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Type</th>
+                                    <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Label</th>
+                                    <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">ID</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {graphRegData.vertices.map((v: any, i: number) => (
+                                    <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                      <td className="px-4 py-2.5 text-xs text-zinc-400 capitalize">{v.type ?? v.label_type ?? '—'}</td>
+                                      <td className="px-4 py-2.5 text-xs text-zinc-300">{v.label ?? v.name ?? v.code ?? '—'}</td>
+                                      <td className="px-4 py-2.5 text-xs font-mono text-zinc-500">{v.id ? String(v.id).slice(0, 8) : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        ) : (
+                          Array.isArray(graphRegData.obligations) && graphRegData.obligations.length > 0 && (
+                            <div>
+                              <div className="text-xs text-zinc-500 mb-2 uppercase tracking-wider">Obligation Vertices</div>
+                              <div className="border border-zinc-700 rounded-md overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b border-zinc-700 bg-zinc-900">
+                                      <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Type</th>
+                                      <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Label</th>
+                                      <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">ID</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {graphRegData.obligations.map((ob: any, i: number) => (
+                                      <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                        <td className="px-4 py-2.5 text-xs text-zinc-400">obligation</td>
+                                        <td className="px-4 py-2.5 text-xs text-zinc-300">
+                                          {typeof ob === 'string' ? ob : ob.label ?? ob.description ?? JSON.stringify(ob)}
+                                        </td>
+                                        <td className="px-4 py-2.5 text-xs font-mono text-zinc-500">
+                                          {ob.id ? String(ob.id).slice(0, 8) : '—'}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )
+                        )}
+
+                        {/* Edges table */}
+                        {Array.isArray(graphRegData.edges) && graphRegData.edges.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-2 uppercase tracking-wider">Edges</div>
+                            <div className="border border-zinc-700 rounded-md overflow-hidden">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b border-zinc-700 bg-zinc-900">
+                                    <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">From</th>
+                                    <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Edge Type</th>
+                                    <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">To</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {graphRegData.edges.map((e: any, i: number) => (
+                                    <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                      <td className="px-4 py-2.5 text-xs font-mono text-zinc-400">
+                                        {e.from_id ?? e.source ?? e.from ? String(e.from_id ?? e.source ?? e.from).slice(0, 8) : '—'}
+                                      </td>
+                                      <td className="px-4 py-2.5 text-xs font-mono text-zinc-300">{e.type ?? e.edge_type ?? e.label ?? '—'}</td>
+                                      <td className="px-4 py-2.5 text-xs font-mono text-zinc-400">
+                                        {e.to_id ?? e.target ?? e.to ? String(e.to_id ?? e.target ?? e.to).slice(0, 8) : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         )}
@@ -1571,12 +1662,28 @@ export default function Home() {
           {/* ── Crawler ──────────────────────────────────────────────────────── */}
           {active === 'crawler' && (
             <div>
-              <h2 className="text-xl font-semibold mb-2">Regulatory Crawler</h2>
+              <div className="flex items-center gap-3 mb-2">
+                <h2 className="text-xl font-semibold">Regulatory Crawler</h2>
+                {crawlerStatus && !crawlerStatus.error && crawlerStatus.enabled && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                    </span>
+                    <span className="text-xs text-green-500 font-medium">Live</span>
+                  </span>
+                )}
+                {crawlerLastUpdated && (
+                  <span className="text-xs text-zinc-600 ml-auto">
+                    Last updated: <span className="font-mono text-zinc-500">{crawlerLastUpdated}</span>
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-zinc-500 mb-6">
                 BCRA + UIF live feed. Fetches new regulations, parses with M1, stores in DB + Qdrant.
               </p>
 
-              {crawlerStatusLoading && (
+              {crawlerStatusLoading && !crawlerStatus && (
                 <div className="text-sm text-zinc-500">Loading status...</div>
               )}
 
