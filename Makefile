@@ -1,8 +1,9 @@
-.PHONY: help up down logs restart ps clean seed benchmark test backend-shell db-shell
+.PHONY: help init up down logs restart ps clean seed benchmark test backend-shell db-shell migrate makemigrations db-migrate-status
 
 help:
 	@echo "ComplianceOS — Available commands:"
 	@echo ""
+	@echo "  make init        - Bootstrap .env from .env.example (first-time setup)"
 	@echo "  make up          - Start all services (db, qdrant, redis, backend, frontend)"
 	@echo "  make down        - Stop all services"
 	@echo "  make logs        - Tail logs from all services"
@@ -14,8 +15,15 @@ help:
 	@echo "  make benchmark   - Run NVIDIA NIM benchmark with your API key"
 	@echo "  make test        - Run backend tests"
 	@echo ""
+	@echo "  make migrate              - Apply all pending Alembic migrations"
+	@echo "  make makemigrations msg=  - Generate a new Alembic migration (provide msg=)"
+	@echo "  make db-migrate-status    - Show current Alembic revision"
+	@echo ""
 	@echo "  make backend-shell - Shell into backend container"
 	@echo "  make db-shell      - psql into database"
+
+init:
+	@if [ -f .env ]; then echo "⚠ .env already exists — skipping"; else cp .env.example .env && echo "✓ .env created. Set NVIDIA_API_KEY in .env before running make up"; fi
 
 up:
 	@test -f .env || (echo "⚠️  .env not found. Run: cp .env.example .env  and add your NVIDIA_API_KEY"; exit 1)
@@ -59,3 +67,12 @@ backend-shell:
 
 db-shell:
 	docker compose exec db psql -U complianceos -d complianceos
+
+migrate:
+	docker compose exec backend alembic upgrade head
+
+makemigrations:
+	docker compose exec backend alembic revision --autogenerate -m "$(msg)"
+
+db-migrate-status:
+	docker compose exec backend alembic current
