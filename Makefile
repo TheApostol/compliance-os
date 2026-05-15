@@ -1,4 +1,4 @@
-.PHONY: help init up down logs restart ps clean seed benchmark test backend-shell db-shell migrate makemigrations db-migrate-status
+.PHONY: help init up down logs restart ps clean seed benchmark test backend-shell db-shell migrate makemigrations db-migrate-status smoke-test ci-test
 
 help:
 	@echo "ComplianceOS — Available commands:"
@@ -21,6 +21,10 @@ help:
 	@echo ""
 	@echo "  make backend-shell - Shell into backend container"
 	@echo "  make db-shell      - psql into database"
+	@echo ""
+	@echo "## Testing"
+	@echo "  make smoke-test  - Trigger crawler + verify DB (requires running stack)"
+	@echo "  make ci-test     - Run pytest inside backend container"
 
 init:
 	@if [ -f .env ]; then echo "⚠ .env already exists — skipping"; else cp .env.example .env && echo "✓ .env created. Set NVIDIA_API_KEY in .env before running make up"; fi
@@ -76,3 +80,31 @@ makemigrations:
 
 db-migrate-status:
 	docker compose exec backend alembic current
+
+## Testing
+
+smoke-test:
+	@echo "▶  Triggering crawler run..."
+	@curl -s -X POST http://localhost:8000/api/v1/crawler/run-now \
+		-H "Content-Type: application/json" \
+		-H "X-Tenant-Id: polkorp" \
+		-d '{"regulator": "all"}' | python3 -m json.tool; \
+	CURL_EXIT=$$?; \
+	echo ""; \
+	echo "⏳ Waiting 5s for crawler to finish..."; \
+	sleep 5; \
+	echo ""; \
+	echo "▶  Latest regulations in DB:"; \
+	docker compose exec db psql -U complianceos -c \
+		"SELECT id, regulator, code, created_at FROM regulations ORDER BY created_at DESC LIMIT 5;"; \
+	DB_EXIT=$$?; \
+	echo ""; \
+	if [ $$CURL_EXIT -eq 0 ] && [ $$DB_EXIT -eq 0 ]; then \
+		echo "✅ smoke-test PASSED"; \
+	else \
+		echo "❌ smoke-test FAILED (curl=$$CURL_EXIT db=$$DB_EXIT)"; \
+		exit 1; \
+	fi
+
+ci-test:
+	docker compose exec backend python -m pytest tests/ -x -q --tb=short
