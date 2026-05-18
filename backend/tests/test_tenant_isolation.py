@@ -217,31 +217,31 @@ class TestGraphVertexIsolation:
 class TestCrawlerRunUsesTenantId:
     """BCRACrawler.run must receive the tenant_id passed by the scheduler."""
 
-    @pytest.mark.asyncio
     async def test_crawler_run_uses_tenant_id(self):
         """
         Mock BCRACrawler.run and verify that run_bcra() passes the caller's
         tenant_id straight through to the crawler.
         """
         from app.modules.crawler.base_crawler import CrawlerResult
+        from app.modules.crawler.bcra_crawler import BCRACrawler
 
         expected_tenant = "acme"
         captured: list[str] = []
 
-        async def mock_run(self_inner, tenant_id: str):
+        async def mock_run(self_inner, tenant_id: str = "polkorp"):
             captured.append(tenant_id)
             return CrawlerResult(
-                source="BCRA",
-                tenant_id=tenant_id,
-                regulations_found=0,
-                regulations_new=0,
-                errors=[],
+                regulator="BCRA",
+                country="AR",
+                crawled=0,
+                skipped_duplicate=0,
+                errors=0,
+                documents=[],
+                run_duration_seconds=0.0,
+                timestamp="2026-05-18T00:00:00+00:00",
             )
 
-        with patch(
-            "app.modules.crawler.bcra_crawler.BCRACrawler.run",
-            new=mock_run,
-        ):
+        with patch.object(BCRACrawler, "run", new=mock_run):
             from app.modules.crawler.scheduler import run_bcra
             await run_bcra(tenant_id=expected_tenant)
 
