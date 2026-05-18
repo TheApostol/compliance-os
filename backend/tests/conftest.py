@@ -70,6 +70,45 @@ def test_client() -> TestClient:
 
 
 @pytest.fixture()
+def analyst_client() -> TestClient:
+    """TestClient that authenticates as a non-admin analyst for tenant 'acme'."""
+    from app.main import app
+
+    def _acme_analyst() -> CurrentUser:
+        return CurrentUser(user_id="acme-analyst", tenant_id="acme", role="analyst")
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _noop_lifespan(app):
+        yield
+
+    app.router.lifespan_context = _noop_lifespan
+    app.dependency_overrides[get_current_user] = _acme_analyst
+    with TestClient(app, raise_server_exceptions=True) as client:
+        yield client
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture()
+def admin_client() -> TestClient:
+    """TestClient that authenticates as an admin user."""
+    from app.main import app
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _noop_lifespan(app):
+        yield
+
+    app.router.lifespan_context = _noop_lifespan
+    app.dependency_overrides[get_current_user] = _override_auth_admin
+    with TestClient(app, raise_server_exceptions=True) as client:
+        yield client
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture()
 def analyst_user() -> CurrentUser:
     return CurrentUser(user_id="test-user", tenant_id="polkorp", role="analyst")
 

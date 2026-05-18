@@ -524,6 +524,25 @@ async def rag_reindex(
 # CRAWLER
 # ═══════════════════════════════════════════════════════════════════
 
+@router.get("/crawler/events")
+async def crawler_events(request: Request, current_user: CurrentUser = Depends(get_current_user)):
+    """SSE stream for crawler completion events scoped to the current tenant."""
+    from sse_starlette.sse import EventSourceResponse
+    from app.services.event_bus import subscribe
+
+    channel = f"crawler:{current_user.tenant_id}"
+
+    async def generator():
+        # Send an initial connected event
+        yield {"event": "connected", "data": '{"status": "listening"}'}
+        async for data in subscribe(channel):
+            if await request.is_disconnected():
+                break
+            yield {"event": "crawl_complete", "data": data}
+
+    return EventSourceResponse(generator())
+
+
 @router.get("/crawler/status")
 async def crawler_status():
     """Crawler schedule and last-run stats."""
