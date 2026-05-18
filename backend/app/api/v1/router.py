@@ -533,7 +533,12 @@ async def crawler_status():
         "enabled": s.crawler_enabled,
         "bcra_url": s.crawler_bcra_url,
         "uif_url": s.crawler_uif_url,
-        "schedule": {"bcra_interval_hours": 6, "uif_interval_hours": 12},
+        "schedule": {"bcra_interval_hours": 6, "uif_interval_hours": 12, "bacen_interval_hours": 8},
+        "jobs": {
+            "bcra": {"interval_hours": 6, "country": "AR"},
+            "uif": {"interval_hours": 12, "country": "AR"},
+            "bacen": {"interval_hours": 8, "country": "BR"},
+        },
     }
 
 
@@ -546,12 +551,14 @@ async def crawler_run_now(
     admin: CurrentUser = Depends(require_admin),
 ):
     """Trigger an immediate crawler run (admin only)."""
-    from app.modules.crawler.scheduler import run_bcra, run_uif, run_all
+    from app.modules.crawler.scheduler import run_bcra, run_uif, run_bacen, run_all
     reg = (regulator or "all").lower()
     if reg == "bcra":
         return await run_bcra(tenant_id=tenant_id)
     elif reg == "uif":
         return await run_uif(tenant_id=tenant_id)
+    elif reg == "bacen":
+        return await run_bacen(tenant_id=tenant_id)
     else:
         return await run_all(tenant_id=tenant_id)
 
@@ -631,3 +638,151 @@ async def list_entities(
         }
         for e in entities
     ]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TENANT MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════
+
+class TenantCreate(BaseModel):
+    name: str
+    slug: str
+    data_residency_policy: str = "global"
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = None
+    data_residency_policy: str | None = None
+    is_active: bool | None = None
+
+
+@router.post("/tenants", status_code=201)
+async def create_tenant(
+    req: TenantCreate,
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Create a new tenant (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        existing = (
+            await session.execute(select(Tenant).where(Tenant.slug == req.slug))
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="Slug already exists")
+
+        tenant = Tenant(
+            name=req.name,
+            slug=req.slug,
+            data_residency_policy=req.data_residency_policy,
+        )
+        session.add(tenant)
+        await session.commit()
+        await session.refresh(tenant)
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "data_residency_policy": tenant.data_residency_policy,
+            "is_active": tenant.is_active,
+            "created_at": tenant.created_at,
+        }
+
+
+@router.get("/tenants")
+async def list_tenants(
+    admin: CurrentUser = Depends(require_admin),
+):
+    """List all tenants (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        tenants = (await session.execute(select(Tenant))).scalars().all()
+
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "slug": t.slug,
+            "data_residency_policy": t.data_residency_policy,
+            "is_active": t.is_active,
+            "created_at": t.created_at,
+        }
+        for t in tenants
+    ]
+
+
+@router.get("/tenants/{slug}")
+async def get_tenant(
+    slug: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get tenant by slug.
+    Non-admin users may only retrieve their own tenant.
+    """
+    if not current_user.is_admin and current_user.tenant_id != slug:
+        raise HTTPException(status_code=403, detail="Access denied: not your tenant")
+
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        tenant = (
+            await session.execute(select(Tenant).where(Tenant.slug == slug))
+        ).scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+        "data_residency_policy": tenant.data_residency_policy,
+        "is_active": tenant.is_active,
+        "created_at": tenant.created_at,
+    }
+
+
+@router.patch("/tenants/{slug}")
+async def update_tenant(
+    slug: str,
+    req: TenantUpdate,
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Partial update of a tenant (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        tenant = (
+            await session.execute(select(Tenant).where(Tenant.slug == slug))
+        ).scalar_one_or_none()
+
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        if req.name is not None:
+            tenant.name = req.name
+        if req.data_residency_policy is not None:
+            tenant.data_residency_policy = req.data_residency_policy
+        if req.is_active is not None:
+            tenant.is_active = req.is_active
+
+        await session.commit()
+        await session.refresh(tenant)
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "data_residency_policy": tenant.data_residency_policy,
+            "is_active": tenant.is_active,
+            "created_at": tenant.created_at,
+        }

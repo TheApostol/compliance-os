@@ -2,8 +2,9 @@
 Crawler Scheduler — APScheduler AsyncIOScheduler integrated with FastAPI lifespan.
 
 Schedule:
-  BCRA — every 6 hours
-  UIF  — every 12 hours
+  BCRA  — every 6 hours
+  UIF   — every 12 hours
+  BACEN — every 8 hours
 """
 
 from __future__ import annotations
@@ -32,10 +33,18 @@ async def run_uif(tenant_id: str = "polkorp") -> dict[str, Any]:
     return result.to_dict()
 
 
+async def run_bacen(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.bacen_crawler import BACENCrawler
+    crawler = BACENCrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("BACEN crawl complete: %s", result)
+    return result.to_dict()
+
+
 async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
     """Run all crawlers sequentially (respects NVIDIA 40 RPM limit)."""
     results = []
-    for run_fn in [run_bcra, run_uif]:
+    for run_fn in [run_bcra, run_uif, run_bacen]:
         try:
             results.append(await run_fn(tenant_id=tenant_id))
         except Exception as e:
@@ -51,10 +60,11 @@ def start_scheduler(app=None):
         from apscheduler.triggers.interval import IntervalTrigger
 
         scheduler = AsyncIOScheduler()
-        scheduler.add_job(run_bcra, IntervalTrigger(hours=6),  id="bcra_crawl",  replace_existing=True)
-        scheduler.add_job(run_uif,  IntervalTrigger(hours=12), id="uif_crawl",   replace_existing=True)
+        scheduler.add_job(run_bcra,  IntervalTrigger(hours=6),  id="bcra_crawl",  replace_existing=True)
+        scheduler.add_job(run_uif,   IntervalTrigger(hours=12), id="uif_crawl",   replace_existing=True)
+        scheduler.add_job(run_bacen, IntervalTrigger(hours=8),  id="bacen_crawl", replace_existing=True)
         scheduler.start()
-        logger.info("Crawler scheduler started (BCRA: 6h, UIF: 12h)")
+        logger.info("Crawler scheduler started (BCRA: 6h, UIF: 12h, BACEN: 8h)")
         return scheduler
     except ImportError:
         logger.warning("apscheduler not installed — crawler scheduling disabled")

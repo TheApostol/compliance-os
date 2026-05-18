@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column, String, DateTime, Integer, Boolean,
-    ForeignKey, Enum as SAEnum, Index
+    ForeignKey, Enum as SAEnum, Index, func
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -59,15 +59,13 @@ class ComplianceEntity(Base):
 class Tenant(Base):
     __tablename__ = "tenants"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    slug = Column(String(64), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    sector = Column(String(64))
-    jurisdictions = Column(JSONB, default=list)
-    data_residency_policy = Column(JSONB, default=dict)
-    config = Column(JSONB, default=dict)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False, unique=True)  # used as tenant_id in JWT
+    data_residency_policy = Column(String, default="global")  # global | latam | ar | br
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    settings = Column(JSONB, default=dict)
 
 
 # ═══════════════════════════════════════════════════════════════════

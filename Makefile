@@ -1,4 +1,4 @@
-.PHONY: help init up down logs restart ps clean seed benchmark test backend-shell db-shell migrate makemigrations db-migrate-status smoke-test ci-test
+.PHONY: help init up down logs restart ps clean seed benchmark test backend-shell db-shell migrate makemigrations db-migrate-status smoke-test ci-test prometheus grafana
 
 help:
 	@echo "ComplianceOS — Available commands:"
@@ -108,3 +108,11 @@ smoke-test:
 
 ci-test:
 	docker compose exec backend python -m pytest tests/ -x -q --tb=short
+
+## Observability
+
+prometheus:  ## Open Prometheus UI
+	open http://localhost:9090 || xdg-open http://localhost:9090
+
+grafana:  ## Open Grafana UI (admin / complianceos)
+	open http://localhost:3001 || xdg-open http://localhost:3001
