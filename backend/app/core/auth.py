@@ -23,7 +23,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -182,3 +182,35 @@ def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
             detail="Admin role required",
         )
     return user
+
+
+async def get_current_user_or_key(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme),
+    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-Id"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> CurrentUser:
+    """
+    Accept either a Bearer JWT (Authorization header) or an X-API-Key header.
+
+    API key auth is tried first. If the header is present but invalid, a 401 is
+    raised immediately — no fallback to JWT. If no X-API-Key is present, the
+    normal JWT / dev-fallback path is used.
+
+    This prevents API keys from being used to create more API keys
+    (key-management endpoints require plain JWT auth via get_current_user).
+    """
+    if x_api_key:
+        from app.services.api_key_service import validate_key
+
+        key_data = await validate_key(x_api_key)
+        if key_data:
+            return CurrentUser(
+                user_id=f"apikey:{key_data['key_id']}",
+                tenant_id=key_data["tenant_id"],
+                role="analyst",  # API keys always get analyst role
+            )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+    # Fall through to normal JWT / dev-fallback auth
+    return await get_current_user(token=token, x_tenant_id=x_tenant_id)
