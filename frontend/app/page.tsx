@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler'
+type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin'
 
 function SkeletonRow({ cols = 3 }: { cols?: number }) {
   return (
@@ -63,12 +63,22 @@ export default function Home() {
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const [loginLoading, setLoginLoading] = useState(false)
+  const [currentUser, setCurrentUser] = useState<{ role: string } | null>(null)
+
+  function decodeJwtPayload(jwt: string): any {
+    try {
+      const payload = jwt.split('.')[1]
+      return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+    } catch { return null }
+  }
 
   useEffect(() => {
     const stored = localStorage.getItem('cos_token')
     if (stored) {
       setToken(stored)
       setIsLoggedIn(true)
+      const claims = decodeJwtPayload(stored)
+      if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
     }
   }, [])
 
@@ -96,6 +106,8 @@ export default function Home() {
       localStorage.setItem('cos_token', t)
       setToken(t)
       setIsLoggedIn(true)
+      const claims = decodeJwtPayload(t)
+      if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
     } catch (e: any) {
       setLoginError(e.message)
     } finally {
@@ -107,6 +119,7 @@ export default function Home() {
     localStorage.removeItem('cos_token')
     setToken(null)
     setIsLoggedIn(false)
+    setCurrentUser(null)
     setLoginEmail('')
     setLoginPassword('')
   }

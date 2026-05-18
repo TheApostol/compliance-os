@@ -22,7 +22,7 @@ from app.modules.governance.engine import AIGovernance
 from app.modules.evidence.engine import EvidenceEngine
 from app.services.ai_orchestrator import MODELS, ROUTING
 from app.core.auth import (
-    CurrentUser, get_current_user, require_admin,
+    CurrentUser, get_current_user, get_current_user_or_key, require_admin,
     create_access_token, create_refresh_token, decode_refresh_token,
     hash_password, verify_password,
     ACCESS_TOKEN_EXPIRE_MINUTES,
