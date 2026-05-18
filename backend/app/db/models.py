@@ -296,6 +296,30 @@ class GraphEdge(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# API KEYS
+# ═══════════════════════════════════════════════════════════════════
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)              # human label e.g. "CI pipeline"
+    key_prefix = Column(String(8), nullable=False)     # first 8 chars, shown in list
+    hashed_key = Column(String, nullable=False, unique=True)  # SHA-256 hex of full key
+    scopes = Column(JSONB, default=list)               # e.g. ["read", "write", "crawl"]
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_api_keys_tenant", "tenant_id"),
+        Index("ix_api_keys_prefix", "key_prefix"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
 # AUTH — USERS
 # ═══════════════════════════════════════════════════════════════════
 

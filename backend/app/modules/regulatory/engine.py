@@ -15,8 +15,51 @@ from app.services.ai_orchestrator import (
 )
 
 
-PARSE_SYSTEM = """You are a regulatory parser for ComplianceOS. You convert raw regulatory text into
-machine-readable obligations following the ComplianceOS schema. You output ONLY valid JSON. No prose."""
+# ── Country-specific system prompts ──────────────────────────────────────────
+
+_PARSE_SYSTEM_BR = """You are a Brazilian financial regulatory compliance expert specializing in Banco Central do Brasil (BACEN), CVM, and SUSEP regulations. You extract structured compliance obligations from Portuguese-language regulatory texts.
+
+Key Brazilian regulatory concepts:
+- Circular/Resolução/Comunicado Normativo → regulatory instrument types
+- Prazo (deadline), Obrigatoriedade (mandatory requirement), Vedação (prohibition)
+- Instituições financeiras (financial institutions), Correspondentes bancários (banking agents)
+- Prevenção à lavagem de dinheiro (AML), Conheça seu cliente (KYC/CDD)
+- COAF (Financial Intelligence Unit, Brazil's equivalent of UIF)
+- SPB (Brazilian Payment System), PIX, TED, DOC
+- Patrimônio de referência (regulatory capital), Basileia III
+
+Extract all obligations, deadlines, and prohibitions. Translate obligation descriptions to English for the structured output, but preserve original Portuguese article references (e.g. "Art. 3º, §2º").
+
+You output ONLY valid JSON. No prose."""
+
+_PARSE_SYSTEM_AR = """You are an Argentine financial regulatory compliance expert specializing in BCRA (Banco Central de la República Argentina) and UIF (Unidad de Información Financiera) regulations.
+
+Key Argentine regulatory concepts:
+- Comunicación (Communication), Resolución (Resolution), Circular (Circular)
+- Prevención de lavado de activos (AML), Conozca a su cliente (KYC)
+- Entidades financieras (financial institutions), Cambiarias (FX entities)
+- UIF, BCRA, CNV (securities regulator)
+- SIDA, CENDEU (information systems)
+
+You output ONLY valid JSON. No prose."""
+
+_PARSE_SYSTEM_GENERIC = """You are an international financial regulatory compliance expert. Extract structured compliance obligations from the provided regulatory text.
+
+You output ONLY valid JSON. No prose."""
+
+# Mapping of Portuguese obligation type terms to canonical English types
+BR_OBLIGATION_TYPE_MAP: dict[str, str] = {
+    "prazo": "deadline",
+    "obrigatoriedade": "requirement",
+    "vedação": "prohibition",
+    "vedacao": "prohibition",
+    "restrição": "restriction",
+    "restricao": "restriction",
+    "comunicação": "reporting",
+    "comunicacao": "reporting",
+    "registro": "registration",
+    "limite": "limit",
+}
 
 
 PARSE_PROMPT_TEMPLATE = """Source regulation:
@@ -88,9 +131,31 @@ JSON schema:
 }}"""
 
 
+def _normalize_br_obligation_types(obligations: list[dict]) -> list[dict]:
+    """Normalize Portuguese obligation type terms to canonical English values."""
+    normalized = []
+    for ob in obligations:
+        ob = dict(ob)  # shallow copy to avoid mutating caller's data
+        raw_type = str(ob.get("obligation_type", "")).lower().strip()
+        if raw_type in BR_OBLIGATION_TYPE_MAP:
+            ob["obligation_type"] = BR_OBLIGATION_TYPE_MAP[raw_type]
+        normalized.append(ob)
+    return normalized
+
+
 class RegulatoryIntelligence:
     def __init__(self, orchestrator: AIOrchestrator | None = None):
         self.orch = orchestrator or get_orchestrator()
+
+    @staticmethod
+    def _build_system_prompt(country: str, regulator: str) -> str:
+        """Return a country-aware system prompt for M1 regulatory parsing."""
+        country_upper = country.upper()
+        if country_upper == "BR":
+            return _PARSE_SYSTEM_BR
+        if country_upper == "AR":
+            return _PARSE_SYSTEM_AR
+        return _PARSE_SYSTEM_GENERIC
 
     async def parse_regulation(
         self,
@@ -105,9 +170,11 @@ class RegulatoryIntelligence:
         """Convert raw regulatory text into structured obligations."""
         truncated = text[:20000]  # leave room for context window
 
+        system_prompt = self._build_system_prompt(country, regulator)
+
         result = await self.orch.infer(InferenceRequest(
             task=TaskType.REGULATORY_PARSING,
-            system=PARSE_SYSTEM,
+            system=system_prompt,
             user_prompt=PARSE_PROMPT_TEMPLATE.format(
                 country=country, regulator=regulator,
                 code=code, title=title, text=truncated,
@@ -126,6 +193,9 @@ class RegulatoryIntelligence:
         persisted = 0
         reg_id = None
         if result.success and obligations_data:
+            # Apply BR obligation type normalization before persisting
+            if country.upper() == "BR":
+                obligations_data = _normalize_br_obligation_types(obligations_data)
             persisted, reg_id = await self._persist_obligations(
                 country=country, regulator=regulator, code=code,
                 title=title, text=text,
