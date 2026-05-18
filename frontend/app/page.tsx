@@ -255,6 +255,7 @@ export default function Home() {
   const [crawlerRegulator, setCrawlerRegulator] = useState('all')
   const [crawlerRunResult, setCrawlerRunResult] = useState<any>(null)
   const [crawlerRunLoading, setCrawlerRunLoading] = useState(false)
+  const [crawlerEvents, setCrawlerEvents] = useState<any[]>([])
 
   useEffect(() => {
     if (active === 'crawler') {
@@ -262,7 +263,18 @@ export default function Home() {
       const interval = setInterval(() => {
         fetchCrawlerStatus()
       }, 30000)
-      return () => clearInterval(interval)
+      const es = new EventSource(`${API_URL}/api/v1/crawler/events`, {})
+      es.addEventListener('crawl_complete', (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data)
+          setCrawlerEvents(prev => [data, ...prev].slice(0, 10))
+        } catch {}
+      })
+      es.onerror = () => es.close()
+      return () => {
+        clearInterval(interval)
+        es.close()
+      }
     }
   }, [active])
 
@@ -1771,6 +1783,24 @@ export default function Home() {
                   >
                     retry
                   </button>
+                </div>
+              )}
+
+              {crawlerEvents.length > 0 && (
+                <div className="mt-6">
+                  <div className="text-xs text-zinc-500 uppercase tracking-wider mb-3">Recent Crawl Events</div>
+                  <div className="space-y-2">
+                    {crawlerEvents.map((ev, i) => (
+                      <div key={i} className="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm">
+                        <span className="font-mono text-xs text-zinc-500 w-14 shrink-0">{ev.regulator ?? 'ALL'}</span>
+                        <span className="text-zinc-300">{ev.crawled ?? 0} crawled</span>
+                        <span className="text-zinc-600">·</span>
+                        <span className="text-zinc-500">{ev.skipped_duplicate ?? 0} skipped</span>
+                        {ev.errors > 0 && <span className="text-red-400 ml-auto">{ev.errors} errors</span>}
+                        {ev.timestamp && <span className="text-zinc-600 text-xs ml-auto">{new Date(ev.timestamp).toLocaleTimeString()}</span>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
