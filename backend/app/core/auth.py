@@ -227,15 +227,44 @@ def _get_jwks_validator() -> JWKSValidator | None:
 
 
 async def get_current_user(
-    token: str | None = Depends(oauth2_scheme),
-    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-Id"),
+    request: Request,
+    authorization: str | None = Header(default=None),
 ) -> CurrentUser:
     """
     Resolve the current user from JWT (preferred) or X-Tenant-Id header (dev fallback).
-    Raises 401 in production if no JWT is provided.
+
+    Routing:
+      - auth_mode="auth0" or "clerk": validate RS256 via JWKS, map claims to CurrentUser
+      - auth_mode="local" (default): validate HS256 with APP_SECRET_KEY
+      - Dev fallback: if APP_ENV != production and no token, use X-Tenant-Id header
     """
     settings = get_settings()
+    token: str | None = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
 
+    # External JWT (Auth0 / Clerk)
+    if settings.auth_mode in ("auth0", "clerk"):
+        validator = _get_jwks_validator()
+        if validator and token:
+            claims = await validator.decode(token)
+            # Map Auth0/Clerk claims to CurrentUser
+            # Auth0: sub="auth0|xxx", https://complianceos.io/tenant_id claim
+            # Clerk: sub="user_xxx", org_id or metadata
+            tenant_id = (
+                claims.get("https://complianceos.io/tenant_id")
+                or claims.get("org_id")
+                or claims.get("tenant_id")
+                or "polkorp"
+            )
+            role = claims.get("https://complianceos.io/role") or claims.get("role") or "analyst"
+            return CurrentUser(
+                user_id=claims.get("sub", "external"),
+                tenant_id=tenant_id,
+                role=role,
+            )
+
+    # Local HS256 JWT
     if token:
         claims = decode_token(token)
         return CurrentUser(
@@ -244,25 +273,18 @@ async def get_current_user(
             role=claims.get("role", "analyst"),
         )
 
-    # Dev-mode fallback: allow X-Tenant-Id without JWT
-    if not settings.is_production and x_tenant_id:
-        return CurrentUser(
-            user_id="dev-user",
-            tenant_id=x_tenant_id,
-            role="analyst",
-        )
-
-    # Default tenant in dev if nothing provided
+    # Dev fallback: allow X-Tenant-Id without JWT
     if not settings.is_production:
+        tenant_id = request.headers.get("X-Tenant-Id", settings.default_tenant_id)
         return CurrentUser(
-            user_id="dev-user",
-            tenant_id=settings.default_tenant_id,
-            role="analyst",
+            user_id="dev",
+            tenant_id=tenant_id,
+            role="admin",
         )
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required",
+        detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -279,8 +301,7 @@ def require_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
 
 async def get_current_user_or_key(
     request: Request,
-    token: str | None = Depends(oauth2_scheme),
-    x_tenant_id: str | None = Header(default=None, alias="X-Tenant-Id"),
+    authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ) -> CurrentUser:
     """
@@ -306,4 +327,4 @@ async def get_current_user_or_key(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
 
     # Fall through to normal JWT / dev-fallback auth
-    return await get_current_user(token=token, x_tenant_id=x_tenant_id)
+    return await get_current_user(request=request, authorization=authorization)
