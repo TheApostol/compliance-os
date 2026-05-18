@@ -330,6 +330,86 @@ export default function Home() {
     }
   }
 
+  // ── Admin — tenant management ──────────────────────────────────────────────
+  const [tenants, setTenants] = useState<any[]>([])
+  const [tenantsLoading, setTenantsLoading] = useState(false)
+  const [tenantForm, setTenantForm] = useState({ name: '', slug: '', data_residency_policy: 'global' })
+  const [tenantResult, setTenantResult] = useState<any>(null)
+
+  // ── Admin — API keys ───────────────────────────────────────────────────────
+  const [apiKeys, setApiKeys] = useState<any[]>([])
+  const [apiKeysLoading, setApiKeysLoading] = useState(false)
+  const [newKeyForm, setNewKeyForm] = useState({ name: '', scopes: 'read,write', expires_days: '' })
+  const [newKeyResult, setNewKeyResult] = useState<any>(null)
+  const [newKeySecret, setNewKeySecret] = useState<string | null>(null)
+
+  async function fetchTenants() {
+    setTenantsLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/tenants`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setTenants(Array.isArray(data) ? data : [])
+    } catch (e: any) { setTenants([]) }
+    finally { setTenantsLoading(false) }
+  }
+
+  async function createTenant() {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/tenants`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify(tenantForm),
+      })
+      const data = await res.json()
+      setTenantResult(data)
+      if (!data.error && !data.detail) { showToast('Tenant created.'); fetchTenants() }
+    } catch (e: any) { setTenantResult({ error: e.message }) }
+  }
+
+  async function fetchApiKeys() {
+    setApiKeysLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/api-keys`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setApiKeys(Array.isArray(data) ? data : [])
+    } catch (e: any) { setApiKeys([]) }
+    finally { setApiKeysLoading(false) }
+  }
+
+  async function createApiKey() {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/api-keys`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newKeyForm.name,
+          scopes: newKeyForm.scopes.split(',').map(s => s.trim()).filter(Boolean),
+          expires_days: newKeyForm.expires_days ? parseInt(newKeyForm.expires_days) : null,
+        }),
+      })
+      const data = await res.json()
+      setNewKeyResult(data)
+      if (data.key) { setNewKeySecret(data.key); fetchApiKeys() }
+    } catch (e: any) { setNewKeyResult({ error: e.message }) }
+  }
+
+  async function revokeApiKey(keyId: string) {
+    try {
+      await fetch(`${API_URL}/api/v1/api-keys/${keyId}`, {
+        method: 'DELETE',
+        headers: authHeaders(token),
+      })
+      fetchApiKeys()
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (active === 'admin') {
+      fetchTenants()
+      fetchApiKeys()
+    }
+  }, [active])
+
   // ── M1 Regulatory state ────────────────────────────────────────────────────
   const [regCountry, setRegCountry] = useState('AR')
   const [regRegulator, setRegRegulator] = useState('BCRA')
@@ -692,6 +772,19 @@ export default function Home() {
                 <div className="text-xs text-zinc-500">{m.desc}</div>
               </button>
             ))}
+            {currentUser?.role === 'admin' && (
+              <button
+                onClick={() => setActive('admin')}
+                className={`w-full text-left p-3 rounded-md transition ${
+                  active === 'admin'
+                    ? 'bg-zinc-800 border border-zinc-700'
+                    : 'hover:bg-zinc-900'
+                }`}
+              >
+                <div className="text-sm font-medium">Admin</div>
+                <div className="text-xs text-zinc-500">Tenants + API keys</div>
+              </button>
+            )}
           </nav>
         </aside>
 
@@ -1734,6 +1827,262 @@ export default function Home() {
                     )}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Admin ───────────────────────────────────────────────────────── */}
+          {active === 'admin' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Admin</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Tenant management and API key administration.
+              </p>
+
+              {/* ── Tenant Management ── */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-8">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wider text-zinc-500">Tenant Management</div>
+                  <button
+                    onClick={fetchTenants}
+                    disabled={tenantsLoading}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                  >
+                    {tenantsLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {tenantsLoading && tenants.length === 0 ? (
+                  <SkeletonTable rows={3} cols={5} />
+                ) : tenants.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                    No tenants found.
+                  </div>
+                ) : (
+                  <div className="border border-zinc-700 rounded-md overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-700 bg-zinc-900">
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Name</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Slug</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Policy</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Active</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Created</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tenants.map((t: any, i: number) => (
+                          <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                            <td className="px-4 py-2.5 text-xs text-zinc-200">{t.name ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs font-mono text-zinc-400">{t.slug ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs text-zinc-400">{t.data_residency_policy ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs">
+                              <span className={`px-1.5 py-0.5 rounded text-xs border ${t.is_active !== false ? 'bg-green-950 text-green-400 border-green-900' : 'bg-zinc-800 text-zinc-500 border-zinc-700'}`}>
+                                {t.is_active !== false ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-zinc-500">
+                              {t.created_at ? new Date(t.created_at).toLocaleDateString() : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Create tenant form */}
+                <div className="pt-2 space-y-3 border-t border-zinc-800">
+                  <div className="text-xs text-zinc-500 uppercase tracking-wider">Create Tenant</div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={tenantForm.name}
+                        onChange={e => setTenantForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="Acme Corp"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Slug</label>
+                      <input
+                        type="text"
+                        value={tenantForm.slug}
+                        onChange={e => setTenantForm(f => ({ ...f, slug: e.target.value }))}
+                        placeholder="acme"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Data Residency Policy</label>
+                      <select
+                        value={tenantForm.data_residency_policy}
+                        onChange={e => setTenantForm(f => ({ ...f, data_residency_policy: e.target.value }))}
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                      >
+                        <option value="global">global</option>
+                        <option value="latam">latam</option>
+                        <option value="ar">ar</option>
+                        <option value="br">br</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    onClick={createTenant}
+                    disabled={!tenantForm.name.trim() || !tenantForm.slug.trim()}
+                    className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                  >
+                    Create Tenant
+                  </button>
+                  {tenantResult && (
+                    <div className={`p-3 rounded-md text-sm border ${tenantResult.error || tenantResult.detail ? 'bg-red-950 border-red-900 text-red-200' : 'bg-zinc-900 border-zinc-800 text-zinc-300'}`}>
+                      {tenantResult.error || tenantResult.detail
+                        ? `Error: ${tenantResult.error ?? tenantResult.detail}`
+                        : <pre className="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(tenantResult, null, 2)}</pre>
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── API Keys ── */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wider text-zinc-500">API Keys</div>
+                  <button
+                    onClick={fetchApiKeys}
+                    disabled={apiKeysLoading}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                  >
+                    {apiKeysLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {apiKeysLoading && apiKeys.length === 0 ? (
+                  <SkeletonTable rows={3} cols={5} />
+                ) : apiKeys.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                    No API keys found.
+                  </div>
+                ) : (
+                  <div className="border border-zinc-700 rounded-md overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-700 bg-zinc-900">
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Name</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Prefix</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Scopes</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Last Used</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {apiKeys.map((k: any, i: number) => {
+                          const lastUsed = k.last_used_at
+                            ? (() => {
+                                const diff = Date.now() - new Date(k.last_used_at).getTime()
+                                const mins = Math.floor(diff / 60000)
+                                if (mins < 60) return `${mins}m ago`
+                                const hrs = Math.floor(mins / 60)
+                                if (hrs < 24) return `${hrs}h ago`
+                                return `${Math.floor(hrs / 24)}d ago`
+                              })()
+                            : 'Never'
+                          return (
+                            <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                              <td className="px-4 py-2.5 text-xs text-zinc-200">{k.name ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-xs font-mono text-zinc-400">{k.key_prefix ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-xs text-zinc-400">
+                                {Array.isArray(k.scopes) ? k.scopes.join(', ') : (k.scopes ?? '—')}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-zinc-500">{lastUsed}</td>
+                              <td className="px-4 py-2.5 text-xs">
+                                {k.is_active !== false && (
+                                  <button
+                                    onClick={() => revokeApiKey(k.id)}
+                                    className="px-2 py-1 text-xs text-red-400 border border-red-900 rounded hover:bg-red-950"
+                                  >
+                                    Revoke
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Create key form */}
+                <div className="pt-2 space-y-3 border-t border-zinc-800">
+                  <div className="text-xs text-zinc-500 uppercase tracking-wider">Create API Key</div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={newKeyForm.name}
+                        onChange={e => setNewKeyForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="CI pipeline key"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Scopes (comma-separated)</label>
+                      <input
+                        type="text"
+                        value={newKeyForm.scopes}
+                        onChange={e => setNewKeyForm(f => ({ ...f, scopes: e.target.value }))}
+                        placeholder="read,write"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Expires (days, optional)</label>
+                      <input
+                        type="number"
+                        value={newKeyForm.expires_days}
+                        onChange={e => setNewKeyForm(f => ({ ...f, expires_days: e.target.value }))}
+                        placeholder="e.g. 90"
+                        min={1}
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={createApiKey}
+                    disabled={!newKeyForm.name.trim()}
+                    className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                  >
+                    Create API Key
+                  </button>
+
+                  {newKeyResult && (newKeyResult.error || newKeyResult.detail) && (
+                    <div className="p-3 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                      Error: {newKeyResult.error ?? newKeyResult.detail}
+                    </div>
+                  )}
+
+                  {newKeySecret && (
+                    <div className="mt-4 p-4 bg-yellow-950 border border-yellow-800 rounded-md">
+                      <div className="text-xs text-yellow-400 font-medium mb-2">
+                        Copy this key now — it will not be shown again
+                      </div>
+                      <div className="font-mono text-sm text-yellow-200 break-all select-all bg-yellow-900/30 px-3 py-2 rounded">
+                        {newKeySecret}
+                      </div>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(newKeySecret); showToast('Key copied!') }}
+                        className="mt-2 text-xs text-yellow-400 hover:text-yellow-200 underline"
+                      >
+                        Copy to clipboard
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
