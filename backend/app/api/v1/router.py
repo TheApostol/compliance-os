@@ -6,6 +6,7 @@ REST endpoints organized by module. Multi-tenant aware.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -805,3 +806,124 @@ async def update_tenant(
             "is_active": tenant.is_active,
             "created_at": tenant.created_at,
         }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# API KEY MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════
+
+class APIKeyCreateRequest(BaseModel):
+    name: str = Field(..., examples=["CI pipeline"])
+    scopes: list[str] = Field(default=["read"], examples=[["read", "write"]])
+    expires_days: int | None = Field(default=None, ge=1, le=3650, examples=[365])
+
+
+@router.post("/api-keys", status_code=201)
+async def create_api_key(
+    req: APIKeyCreateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Create a new API key scoped to the caller's tenant.
+
+    The full plaintext key is returned exactly ONCE. Store it securely —
+    only the prefix and hash are persisted in the database.
+    Requires JWT auth (not API key auth) to prevent the key-bootstrap problem.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import APIKey
+    from app.services.api_key_service import generate_key
+
+    full_key, prefix, hashed = generate_key()
+
+    expires_at = None
+    if req.expires_days is not None:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=req.expires_days)
+
+    async with AsyncSessionLocal() as session:
+        api_key = APIKey(
+            tenant_id=current_user.tenant_id,
+            name=req.name,
+            key_prefix=prefix,
+            hashed_key=hashed,
+            scopes=req.scopes,
+            expires_at=expires_at,
+        )
+        session.add(api_key)
+        await session.commit()
+        await session.refresh(api_key)
+
+    return {
+        "id": api_key.id,
+        "key": full_key,
+        "prefix": prefix,
+        "name": api_key.name,
+        "scopes": api_key.scopes,
+        "expires_at": api_key.expires_at.isoformat() if api_key.expires_at else None,
+        "created_at": api_key.created_at.isoformat() if api_key.created_at else None,
+        "warning": "Store this key securely. It will not be shown again.",
+    }
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    List all API keys for the caller's tenant.
+
+    Never returns the full plaintext key or its hash — only the prefix,
+    metadata, and last-used timestamp.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import APIKey
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(APIKey).where(APIKey.tenant_id == current_user.tenant_id)
+        keys = (await session.execute(stmt)).scalars().all()
+
+    return [
+        {
+            "id": k.id,
+            "name": k.name,
+            "prefix": k.key_prefix,
+            "scopes": k.scopes or [],
+            "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+            "expires_at": k.expires_at.isoformat() if k.expires_at else None,
+            "is_active": k.is_active,
+            "created_at": k.created_at.isoformat() if k.created_at else None,
+        }
+        for k in keys
+    ]
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(
+    key_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Revoke an API key by setting is_active = False.
+
+    Returns 404 if the key does not exist or belongs to a different tenant,
+    preventing tenants from discovering or revoking each other's keys.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import APIKey
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(APIKey).where(
+            APIKey.id == key_id,
+            APIKey.tenant_id == current_user.tenant_id,
+        )
+        key_row = (await session.execute(stmt)).scalar_one_or_none()
+
+        if not key_row:
+            raise HTTPException(status_code=404, detail="API key not found")
+
+        key_row.is_active = False
+        await session.commit()
+
+    return {"revoked": True}
