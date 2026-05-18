@@ -19,30 +19,40 @@ logger = logging.getLogger(__name__)
 
 async def run_bcra(tenant_id: str = "polkorp") -> dict[str, Any]:
     from app.modules.crawler.bcra_crawler import BCRACrawler
+    from app.services.event_bus import publish
     crawler = BCRACrawler()
     result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
     logger.info("BCRA crawl complete: %s", result)
-    return result.to_dict()
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "BCRA", **d})
+    return d
 
 
 async def run_uif(tenant_id: str = "polkorp") -> dict[str, Any]:
     from app.modules.crawler.uif_crawler import UIFCrawler
+    from app.services.event_bus import publish
     crawler = UIFCrawler()
     result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
     logger.info("UIF crawl complete: %s", result)
-    return result.to_dict()
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "UIF", **d})
+    return d
 
 
 async def run_bacen(tenant_id: str = "polkorp") -> dict[str, Any]:
     from app.modules.crawler.bacen_crawler import BACENCrawler
+    from app.services.event_bus import publish
     crawler = BACENCrawler()
     result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
     logger.info("BACEN crawl complete: %s", result)
-    return result.to_dict()
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "BACEN", **d})
+    return d
 
 
 async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
     """Run all crawlers sequentially (respects NVIDIA 40 RPM limit)."""
+    from app.services.event_bus import publish
     results = []
     for run_fn in [run_bcra, run_uif, run_bacen]:
         try:
@@ -50,6 +60,18 @@ async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
         except Exception as e:
             logger.error("Crawler failed: %s", e)
             results.append({"error": str(e)})
+
+    # Publish a summary event for run_all
+    total_crawled = sum(r.get("crawled", 0) for r in results if isinstance(r, dict) and "crawled" in r)
+    total_skipped = sum(r.get("skipped_duplicate", 0) for r in results if isinstance(r, dict))
+    total_errors = sum(r.get("errors", 0) for r in results if isinstance(r, dict))
+    await publish(f"crawler:{tenant_id}", {
+        "regulator": "ALL",
+        "crawled": total_crawled,
+        "skipped_duplicate": total_skipped,
+        "errors": total_errors,
+        "results": results,
+    })
     return results
 
 

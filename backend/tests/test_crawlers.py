@@ -438,6 +438,122 @@ class TestAlreadyProcessed:
 # ── CrawlerResult dataclass ───────────────────────────────────────────────────
 
 
+# ── BACEN crawler tests ───────────────────────────────────────────────────────
+
+
+class TestBACENCrawler:
+    """Test BACENCrawler — all external I/O mocked."""
+
+    def _crawler(self):
+        from app.modules.crawler.bacen_crawler import BACENCrawler
+        return BACENCrawler()
+
+    def test_bacen_fallback_entries(self):
+        """Fallback returns exactly 5 entries, all with country BR."""
+        from app.modules.crawler.bacen_crawler import BACENCrawler, BACEN_FALLBACK_URLS
+
+        crawler = BACENCrawler()
+        entries = crawler._fallback_entries()
+
+        assert len(entries) == 5
+        assert len(entries) == len(BACEN_FALLBACK_URLS)
+        assert crawler.country == "BR"
+        assert all("fallback" in e.title for e in entries)
+        assert all(e.url.startswith("https://www.bcb.gov.br") for e in entries)
+
+    def test_bacen_strategy1_pdf_links(self):
+        """Strategy 1: anchors with .pdf hrefs are found."""
+        html = """
+        <html><body>
+          <a href="/pre/normativos/circ/2023/03950.pdf">Circular 3950</a>
+          <a href="/pre/normativos/circ/2023/03951.pdf">Circular 3951</a>
+          <a href="/pre/normativos/circ/2023/03952.pdf">Circular 3952</a>
+          <a href="/pre/normativos/circ/2023/03953.pdf">Circular 3953</a>
+        </body></html>
+        """
+        crawler = self._crawler()
+        entries = crawler._parse_index_html(html)
+        assert len(entries) >= 3
+        urls = [e.url for e in entries]
+        assert any("03950.pdf" in u for u in urls)
+        assert any("03951.pdf" in u for u in urls)
+
+    def test_bacen_strategy2_table_rows(self):
+        """Strategy 2: table rows containing Circular keyword are parsed.
+
+        The HTML uses non-PDF hrefs so strategy 1 doesn't fire; strategy 2
+        must find the rows by Circular keyword and extract their links.
+        """
+        html = """
+        <html><body><table>
+          <tr>
+            <td>Circular</td><td>3950</td>
+            <td><a href="/normativos/circ/2023/view/3950">Ver</a></td>
+          </tr>
+          <tr>
+            <td>Circular</td><td>3951</td>
+            <td><a href="/normativos/circ/2023/view/3951">Ver</a></td>
+          </tr>
+          <tr>
+            <td>Circular</td><td>3952</td>
+            <td><a href="/normativos/circ/2023/view/3952">Ver</a></td>
+          </tr>
+        </table></body></html>
+        """
+        crawler = self._crawler()
+        entries = crawler._strategy_table_rows(html)
+        assert len(entries) >= 3
+        urls = [e.url for e in entries]
+        assert any("3950" in u for u in urls)
+        assert any("3951" in u for u in urls)
+
+    def test_bacen_strategy3_anchor_text(self):
+        """Strategy 3: anchors whose text matches 'Circular 3950' pattern."""
+        html = """
+        <html><body>
+          <a href="/page/3950">Circular 3950</a>
+          <a href="/page/3951">Circular 3951</a>
+          <a href="/page/3952">Circular 3952</a>
+          <a href="/irrelevant">Página inicial</a>
+        </body></html>
+        """
+        crawler = self._crawler()
+        entries = crawler._parse_index_html(html)
+        assert len(entries) >= 3
+        titles = [e.title for e in entries]
+        assert all(any("Circular" in t for t in titles) for _ in [1])
+        assert not any("Página inicial" in t for t in titles)
+
+    @pytest.mark.asyncio
+    async def test_bacen_nonblocking_on_404(self):
+        """Non-200 response returns fallback entries without raising."""
+        from app.modules.crawler.bacen_crawler import BACEN_FALLBACK_URLS
+
+        crawler = self._crawler()
+        with patch.object(
+            type(crawler), "_get",
+            new=AsyncMock(return_value=_make_response(404)),
+        ):
+            entries = await crawler.fetch_index()
+
+        assert len(entries) == len(BACEN_FALLBACK_URLS)
+        assert all("fallback" in e.title for e in entries)
+
+    def test_bacen_iso_date_extraction(self):
+        """ISO yyyy-mm-dd date in text should be parsed into published_at."""
+        from app.modules.crawler.bacen_crawler import BACENCrawler
+
+        crawler = BACENCrawler()
+        result = crawler._extract_date("Publicado em 2023-05-15 pelo BACEN")
+        assert result is not None
+        assert result.year == 2023
+        assert result.month == 5
+        assert result.day == 15
+
+
+# ── CrawlerResult dataclass ───────────────────────────────────────────────────
+
+
 class TestCrawlerResult:
     def test_to_dict_has_all_fields(self):
         from app.modules.crawler.base_crawler import CrawlerResult
