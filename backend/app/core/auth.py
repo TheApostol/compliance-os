@@ -1,28 +1,43 @@
 """
 ComplianceOS — JWT Authentication
 ====================================
-HS256 tokens signed with APP_SECRET_KEY.
+HS256 tokens signed with APP_SECRET_KEY (local mode).
+RS256 tokens validated against remote JWKS (Auth0 / Clerk modes).
 
-JWT claims:
+JWT claims (local HS256):
   sub         — user UUID
   tenant_id   — tenant slug (e.g. "polkorp")
   role        — admin | analyst | viewer
   exp         — expiry timestamp
 
+JWT claims (Auth0):
+  sub                                  — "auth0|<user_id>"
+  https://complianceos.io/tenant_id    — tenant slug (custom claim)
+  https://complianceos.io/role         — role (custom claim)
+
+JWT claims (Clerk):
+  sub     — "user_<id>"
+  org_id  — mapped to tenant_id
+  role    — mapped to role
+
 Dev-mode backward compat: if JWT is absent but X-Tenant-Id header is present
 and APP_ENV != production, requests are allowed through with role=analyst.
 This lets existing dev/test scripts keep working without breaking auth.
 
-Upgrade path: swap HS256 signing to JWKS (Auth0/Clerk) by replacing
-`decode_token` without touching any downstream code.
+Auth modes:
+  local  — HS256 signed with APP_SECRET_KEY (default)
+  auth0  — RS256 validated against Auth0 JWKS endpoint
+  clerk  — RS256 validated against Clerk JWKS endpoint
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
 from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -131,6 +146,84 @@ class CurrentUser:
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+
+# ── JWKS Validator (Auth0 / Clerk) ──────────────────────────────────
+
+class JWKSValidator:
+    """Validates RS256 JWTs against a remote JWKS endpoint. Caches keys for 1 hour."""
+
+    def __init__(self, jwks_url: str, audience: str = "", issuer: str = ""):
+        self.jwks_url = jwks_url
+        self.audience = audience
+        self.issuer = issuer
+        self._keys: dict[str, Any] = {}
+        self._fetched_at: float = 0.0
+
+    async def _fetch_keys(self) -> None:
+        if time.time() - self._fetched_at < 3600 and self._keys:
+            return
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(self.jwks_url)
+            resp.raise_for_status()
+            jwks = resp.json()
+        self._keys = {k["kid"]: k for k in jwks.get("keys", [])}
+        self._fetched_at = time.time()
+
+    async def decode(self, token: str) -> dict:
+        """Decode and validate an RS256 JWT. Returns claims dict or raises HTTPException 401."""
+        try:
+            header = jwt.get_unverified_header(token)
+            kid = header.get("kid")
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Invalid token header")
+
+        await self._fetch_keys()
+        key_data = self._keys.get(kid)
+        if not key_data:
+            # Refresh once and retry
+            self._fetched_at = 0.0
+            await self._fetch_keys()
+            key_data = self._keys.get(kid)
+        if not key_data:
+            raise HTTPException(status_code=401, detail="Unknown signing key")
+
+        try:
+            options = {"verify_aud": bool(self.audience), "verify_iss": bool(self.issuer)}
+            claims = jwt.decode(
+                token,
+                key_data,
+                algorithms=["RS256"],
+                audience=self.audience or None,
+                issuer=self.issuer or None,
+                options=options,
+            )
+            return claims
+        except JWTError as e:
+            raise HTTPException(status_code=401, detail=f"Token validation failed: {e}")
+
+
+# ── JWKS singleton ──────────────────────────────────────────────────
+
+_jwks_validator: JWKSValidator | None = None
+
+
+def _get_jwks_validator() -> JWKSValidator | None:
+    global _jwks_validator
+    settings = get_settings()
+    if settings.auth_mode == "auth0" and settings.auth0_domain:
+        if _jwks_validator is None:
+            _jwks_validator = JWKSValidator(
+                jwks_url=f"https://{settings.auth0_domain}/.well-known/jwks.json",
+                audience=settings.auth0_audience,
+                issuer=f"https://{settings.auth0_domain}/",
+            )
+        return _jwks_validator
+    if settings.auth_mode == "clerk" and settings.clerk_jwks_url:
+        if _jwks_validator is None:
+            _jwks_validator = JWKSValidator(jwks_url=settings.clerk_jwks_url)
+        return _jwks_validator
+    return None
 
 
 async def get_current_user(
