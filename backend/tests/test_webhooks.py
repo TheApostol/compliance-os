@@ -170,7 +170,7 @@ async def test_dispatch_no_matching_hooks():
 
     mock_session_local = MagicMock(return_value=mock_session)
 
-    with patch("app.services.webhook_service.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         with patch("app.services.webhook_service.deliver", new_callable=AsyncMock) as mock_deliver:
             await dispatch_event(tenant_id="polkorp", event="crawler.complete", data={})
 
@@ -224,7 +224,7 @@ async def test_dispatch_delivers_to_subscribed():
             return mock_select_session
         return mock_update_session
 
-    with patch("app.services.webhook_service.AsyncSessionLocal", side_effect=_session_factory):
+    with patch("app.db.base.AsyncSessionLocal", side_effect=_session_factory):
         with patch(
             "app.services.webhook_service.deliver",
             new_callable=AsyncMock,
@@ -288,17 +288,20 @@ def test_create_webhook_endpoint():
     app.router.lifespan_context = _noop_lifespan
     app.dependency_overrides[get_current_user] = _auth
 
-    with patch("app.api.v1.router.AsyncSessionLocal", mock_session_local):
-        with TestClient(app, raise_server_exceptions=True) as client:
-            response = client.post(
-                "/api/v1/webhooks",
-                json={
-                    "name": "Slack alerts",
-                    "url": "https://hooks.slack.com/abc",
-                    "secret": "mysecret123",
-                    "events": ["crawler.complete"],
-                },
-            )
+    # Patch the request-id middleware logger to avoid the structlog PrintLogger.name
+    # crash that affects all endpoint tests in the host (non-Docker) environment.
+    with patch("app.middleware.request_id.logger", new=MagicMock()):
+        with patch("app.db.base.AsyncSessionLocal", mock_session_local):
+            with TestClient(app, raise_server_exceptions=True) as client:
+                response = client.post(
+                    "/api/v1/webhooks",
+                    json={
+                        "name": "Slack alerts",
+                        "url": "https://hooks.slack.com/abc",
+                        "secret": "mysecret123",
+                        "events": ["crawler.complete"],
+                    },
+                )
 
     app.dependency_overrides.pop(get_current_user, None)
 

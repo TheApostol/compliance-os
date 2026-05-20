@@ -625,11 +625,21 @@ async def crawler_status():
         "enabled": s.crawler_enabled,
         "bcra_url": s.crawler_bcra_url,
         "uif_url": s.crawler_uif_url,
-        "schedule": {"bcra_interval_hours": 6, "uif_interval_hours": 12, "bacen_interval_hours": 8},
+        "schedule": {
+            "bcra_interval_hours": 6,
+            "uif_interval_hours": 12,
+            "bacen_interval_hours": 8,
+            "cmf_interval_hours": 12,
+            "sfc_interval_hours": 12,
+            "cnbv_interval_hours": 12,
+        },
         "jobs": {
             "bcra": {"interval_hours": 6, "country": "AR"},
             "uif": {"interval_hours": 12, "country": "AR"},
             "bacen": {"interval_hours": 8, "country": "BR"},
+            "cmf": {"interval_hours": 12, "country": "CL"},
+            "sfc": {"interval_hours": 12, "country": "CO"},
+            "cnbv": {"interval_hours": 12, "country": "MX"},
         },
     }
 
@@ -643,7 +653,9 @@ async def crawler_run_now(
     admin: CurrentUser = Depends(require_admin),
 ):
     """Trigger an immediate crawler run (admin only)."""
-    from app.modules.crawler.scheduler import run_bcra, run_uif, run_bacen, run_all
+    from app.modules.crawler.scheduler import (
+        run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv, run_all,
+    )
     reg = (regulator or "all").lower()
     if reg == "bcra":
         return await run_bcra(tenant_id=tenant_id)
@@ -651,6 +663,12 @@ async def crawler_run_now(
         return await run_uif(tenant_id=tenant_id)
     elif reg == "bacen":
         return await run_bacen(tenant_id=tenant_id)
+    elif reg == "cmf":
+        return await run_cmf(tenant_id=tenant_id)
+    elif reg == "sfc":
+        return await run_sfc(tenant_id=tenant_id)
+    elif reg == "cnbv":
+        return await run_cnbv(tenant_id=tenant_id)
     else:
         return await run_all(tenant_id=tenant_id)
 
@@ -1286,3 +1304,84 @@ async def list_compliance_scores(
                 "satisfied_obligations": score.satisfied_obligations,
             })
     return {"scores": scores, "count": len(scores)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SEARCH
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/search")
+async def search_regulations(
+    q: str,
+    country: str | None = None,
+    regulator: str | None = None,
+    limit: int = 10,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Hybrid search: Postgres ILIKE (keyword) + Qdrant semantic (vector).
+    Merges results, deduplicates by regulation id.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Regulation
+    from app.services.rag import get_rag
+    from sqlalchemy import select, or_
+
+    results: dict[str, dict] = {}  # regulation_id → result dict
+
+    # 1. Postgres keyword search
+    async with AsyncSessionLocal() as session:
+        stmt = select(Regulation).where(
+            or_(
+                Regulation.title.ilike(f"%{q}%"),
+                Regulation.code.ilike(f"%{q}%"),
+                Regulation.full_text.ilike(f"%{q}%"),
+            ),
+        ).limit(min(limit, 50))
+        if country:
+            stmt = stmt.where(Regulation.country == country)
+        if regulator:
+            stmt = stmt.where(Regulation.regulator == regulator)
+        regs = (await session.execute(stmt)).scalars().all()
+        for reg in regs:
+            results[str(reg.id)] = {
+                "regulation_id": str(reg.id),
+                "title": reg.title,
+                "code": reg.code,
+                "country": reg.country,
+                "regulator": reg.regulator,
+                "source": "keyword",
+                "score": 1.0,
+            }
+
+    # 2. Qdrant semantic search
+    try:
+        rag = get_rag()
+        chunks = await rag.retrieve(
+            query=q,
+            tenant_id=current_user.tenant_id,
+            top_k=limit,
+            country_filter=country,
+        )
+        for chunk in chunks:
+            reg_id = chunk.get("regulation_id")
+            if reg_id and reg_id not in results:
+                results[reg_id] = {
+                    "regulation_id": reg_id,
+                    "title": chunk.get("title", ""),
+                    "code": chunk.get("code", ""),
+                    "country": chunk.get("country", ""),
+                    "regulator": chunk.get("regulator", ""),
+                    "source": "semantic",
+                    "score": chunk.get("score", 0.0),
+                    "excerpt": chunk.get("text", "")[:300],
+                }
+            elif reg_id and results[reg_id]["source"] == "keyword":
+                results[reg_id]["source"] = "hybrid"
+                results[reg_id]["score"] = max(results[reg_id]["score"], chunk.get("score", 0.0))
+                results[reg_id]["excerpt"] = chunk.get("text", "")[:300]
+    except Exception:
+        pass  # Qdrant unavailable — keyword results still returned
+
+    merged = sorted(results.values(), key=lambda x: x["score"], reverse=True)
+    return {"results": merged[:limit], "count": len(merged), "query": q}

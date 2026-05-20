@@ -128,9 +128,15 @@ def start_scheduler(app=None):
         scheduler.add_job(run_bcra,           IntervalTrigger(hours=6),  id="bcra_crawl",     replace_existing=True)
         scheduler.add_job(run_uif,            IntervalTrigger(hours=12), id="uif_crawl",      replace_existing=True)
         scheduler.add_job(run_bacen,          IntervalTrigger(hours=8),  id="bacen_crawl",    replace_existing=True)
+        scheduler.add_job(run_cmf,            IntervalTrigger(hours=12), id="cmf_crawl",      replace_existing=True)
+        scheduler.add_job(run_sfc,            IntervalTrigger(hours=12), id="sfc_crawl",      replace_existing=True)
+        scheduler.add_job(run_cnbv,           IntervalTrigger(hours=12), id="cnbv_crawl",     replace_existing=True)
         scheduler.add_job(run_deadline_check, IntervalTrigger(hours=24), id="deadline_check", replace_existing=True)
         scheduler.start()
-        logger.info("Crawler scheduler started (BCRA: 6h, UIF: 12h, BACEN: 8h, deadline: 24h)")
+        logger.info(
+            "Crawler scheduler started "
+            "(BCRA: 6h, UIF: 12h, BACEN: 8h, CMF: 12h, SFC: 12h, CNBV: 12h, deadline: 24h)"
+        )
         return scheduler
     except ImportError:
         logger.warning("apscheduler not installed — crawler scheduling disabled")
