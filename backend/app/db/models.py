@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column, String, DateTime, Integer, Boolean,
-    ForeignKey, Enum as SAEnum, Index, func
+    ForeignKey, Enum as SAEnum, Index, UniqueConstraint, func
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -296,6 +296,35 @@ class GraphEdge(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════
+# WEBHOOKS
+# ═══════════════════════════════════════════════════════════════════
+
+class WebhookEvent(str, enum.Enum):
+    CRAWL_COMPLETE     = "crawl.complete"
+    DEADLINE_ALERT     = "deadline.alert"
+    REGULATION_PARSED  = "regulation.parsed"
+
+
+class WebhookConfig(Base):
+    __tablename__ = "webhook_configs"
+
+    id                = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id         = Column(String, nullable=False, index=True)
+    name              = Column(String, nullable=False)
+    url               = Column(String, nullable=False)
+    secret            = Column(String, nullable=True)   # HMAC-SHA256 signing secret
+    events            = Column(JSONB, default=list)     # list of WebhookEvent values to subscribe to
+    is_active         = Column(Boolean, default=True)
+    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    last_status_code  = Column(Integer, nullable=True)
+    created_at        = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_webhooks_tenant", "tenant_id"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
 # API KEYS
 # ═══════════════════════════════════════════════════════════════════
 
@@ -340,3 +369,41 @@ class User(Base):
     role = Column(SAEnum(UserRole), default=UserRole.ANALYST, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DEADLINE ALERTS
+# ═══════════════════════════════════════════════════════════════════
+
+class AlertSeverity(str, enum.Enum):
+    LOW      = "low"
+    MEDIUM   = "medium"
+    HIGH     = "high"
+    CRITICAL = "critical"
+
+
+class DeadlineAlert(Base):
+    """
+    Tracks approaching obligation deadlines.
+    Created/updated daily by the deadline checker background job.
+    """
+    __tablename__ = "deadline_alerts"
+
+    id              = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id       = Column(String, nullable=False, index=True)
+    obligation_id   = Column(String, nullable=False)   # FK-style ref, no hard FK for simplicity
+    regulation_code = Column(String, nullable=False)
+    regulator       = Column(String, nullable=False)
+    country         = Column(String, nullable=False)
+    title           = Column(String, nullable=False)
+    deadline        = Column(DateTime(timezone=True), nullable=False)
+    days_remaining  = Column(Integer, nullable=False)
+    severity        = Column(SAEnum(AlertSeverity), default=AlertSeverity.MEDIUM)
+    is_acknowledged = Column(Boolean, default=False)
+    acknowledged_by = Column(String, nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_alerts_tenant_ack", "tenant_id", "is_acknowledged"),
+        UniqueConstraint("tenant_id", "obligation_id", name="uq_alert_tenant_obligation"),
+    )

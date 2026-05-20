@@ -50,6 +50,13 @@ async def run_bacen(tenant_id: str = "polkorp") -> dict[str, Any]:
     return d
 
 
+async def run_deadline_check(tenant_id: str = "polkorp") -> dict:
+    from app.modules.monitoring.deadline_checker import check_deadlines
+    result = await check_deadlines(tenant_id=tenant_id)
+    logger.info("Deadline check complete: %s", result)
+    return result
+
+
 async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
     """Run all crawlers sequentially (respects NVIDIA 40 RPM limit)."""
     from app.services.event_bus import publish
@@ -82,11 +89,12 @@ def start_scheduler(app=None):
         from apscheduler.triggers.interval import IntervalTrigger
 
         scheduler = AsyncIOScheduler()
-        scheduler.add_job(run_bcra,  IntervalTrigger(hours=6),  id="bcra_crawl",  replace_existing=True)
-        scheduler.add_job(run_uif,   IntervalTrigger(hours=12), id="uif_crawl",   replace_existing=True)
-        scheduler.add_job(run_bacen, IntervalTrigger(hours=8),  id="bacen_crawl", replace_existing=True)
+        scheduler.add_job(run_bcra,           IntervalTrigger(hours=6),  id="bcra_crawl",     replace_existing=True)
+        scheduler.add_job(run_uif,            IntervalTrigger(hours=12), id="uif_crawl",      replace_existing=True)
+        scheduler.add_job(run_bacen,          IntervalTrigger(hours=8),  id="bacen_crawl",    replace_existing=True)
+        scheduler.add_job(run_deadline_check, IntervalTrigger(hours=24), id="deadline_check", replace_existing=True)
         scheduler.start()
-        logger.info("Crawler scheduler started (BCRA: 6h, UIF: 12h, BACEN: 8h)")
+        logger.info("Crawler scheduler started (BCRA: 6h, UIF: 12h, BACEN: 8h, deadline: 24h)")
         return scheduler
     except ImportError:
         logger.warning("apscheduler not installed — crawler scheduling disabled")

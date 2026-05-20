@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin'
+type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search'
 
 function SkeletonRow({ cols = 3 }: { cols?: number }) {
   return (
@@ -667,6 +667,56 @@ export default function Home() {
     } finally {
       setInjectionLoading(false)
     }
+  }
+
+  // ── Audit log state ────────────────────────────────────────────────────────
+  const [auditEntries, setAuditEntries] = useState<any[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditFilter, setAuditFilter] = useState('')
+  const [auditEventTypes, setAuditEventTypes] = useState<string[]>([])
+
+  useEffect(() => {
+    if (active === 'audit') {
+      fetchAudit()
+      fetchAuditEventTypes()
+    }
+  }, [active])
+
+  async function fetchAuditEventTypes() {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/audit/event-types`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setAuditEventTypes(Array.isArray(data.event_types) ? data.event_types : [])
+    } catch { setAuditEventTypes([]) }
+  }
+
+  async function fetchAudit() {
+    setAuditLoading(true)
+    try {
+      const params = new URLSearchParams({ limit: '50' })
+      if (auditFilter) params.set('event_type', auditFilter)
+      const res = await fetch(`${API_URL}/api/v1/audit?${params}`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setAuditEntries(Array.isArray(data.entries) ? data.entries : [])
+    } catch { setAuditEntries([]) }
+    finally { setAuditLoading(false) }
+  }
+
+  // ── Search state ───────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+
+  async function doSearch() {
+    if (!searchQuery.trim()) return
+    setSearchLoading(true)
+    try {
+      const params = new URLSearchParams({ q: searchQuery, limit: '10' })
+      const res = await fetch(`${API_URL}/api/v1/search?${params}`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setSearchResults(Array.isArray(data.results) ? data.results : [])
+    } catch { setSearchResults([]) }
+    finally { setSearchLoading(false) }
   }
 
   // ── Login screen ───────────────────────────────────────────────────────────

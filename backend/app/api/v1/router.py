@@ -394,6 +394,78 @@ async def get_evidence_document(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# DEADLINE ALERTS
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/alerts")
+async def list_alerts(
+    acknowledged: bool = False,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """List deadline alerts for the current tenant, filtered by acknowledgement status."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import DeadlineAlert
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as session:
+        stmt = select(DeadlineAlert).where(
+            DeadlineAlert.tenant_id == current_user.tenant_id,
+            DeadlineAlert.is_acknowledged == acknowledged,
+        ).order_by(DeadlineAlert.days_remaining)
+        alerts = (await session.execute(stmt)).scalars().all()
+    return {"alerts": [
+        {
+            "id": a.id,
+            "obligation_id": a.obligation_id,
+            "regulation_code": a.regulation_code,
+            "regulator": a.regulator,
+            "country": a.country,
+            "title": a.title,
+            "deadline": a.deadline.isoformat() if a.deadline else None,
+            "days_remaining": a.days_remaining,
+            "severity": a.severity,
+            "is_acknowledged": a.is_acknowledged,
+        }
+        for a in alerts
+    ], "count": len(alerts)}
+
+
+@router.post("/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(
+    alert_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Acknowledge a deadline alert, recording who acknowledged it."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import DeadlineAlert
+    from sqlalchemy import select, update
+    async with AsyncSessionLocal() as session:
+        alert = (await session.execute(
+            select(DeadlineAlert).where(
+                DeadlineAlert.id == alert_id,
+                DeadlineAlert.tenant_id == current_user.tenant_id,
+            )
+        )).scalar_one_or_none()
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        await session.execute(
+            update(DeadlineAlert).where(DeadlineAlert.id == alert_id)
+            .values(is_acknowledged=True, acknowledged_by=current_user.user_id)
+        )
+        await session.commit()
+    return {"acknowledged": True, "alert_id": alert_id}
+
+
+@router.post("/alerts/run-check")
+async def run_deadline_check_endpoint(
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Manually trigger the deadline checker job (admin only)."""
+    from app.modules.crawler.scheduler import run_deadline_check
+    result = await run_deadline_check(tenant_id=admin.tenant_id)
+    return {"triggered": True, **result}
+
+
+# ═══════════════════════════════════════════════════════════════════
 # AUTH
 # ═══════════════════════════════════════════════════════════════════
 
@@ -927,3 +999,160 @@ async def revoke_api_key(
         await session.commit()
 
     return {"revoked": True}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIT LOG
+# ═══════════════════════════════════════════════════════════════════
+
+def _summarize_payload(payload: dict | None) -> str:
+    if not payload:
+        return ""
+    task = payload.get("task", "")
+    model = payload.get("model", "")
+    tokens = payload.get("tokens_used", "")
+    parts = [p for p in [task, model, f"{tokens} tokens" if tokens else ""] if p]
+    return " · ".join(parts)[:120]
+
+
+@router.get("/audit/event-types")
+async def list_audit_event_types(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return distinct event_type values for the tenant (for filter dropdown)."""
+    from app.db.base import AsyncSessionLocal
+    from app.core.audit import AuditLogEntry
+    from sqlalchemy import select, distinct
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(distinct(AuditLogEntry.event_type))
+            .where(AuditLogEntry.tenant_id == current_user.tenant_id)
+            .order_by(AuditLogEntry.event_type)
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+
+    return {"event_types": list(rows)}
+
+
+@router.get("/audit")
+async def list_audit_log(
+    limit: int = 50,
+    offset: int = 0,
+    event_type: str | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return audit log entries for the tenant, newest first."""
+    from app.db.base import AsyncSessionLocal
+    from app.core.audit import AuditLogEntry
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(AuditLogEntry)
+            .where(AuditLogEntry.tenant_id == current_user.tenant_id)
+            .order_by(AuditLogEntry.created_at.desc())
+            .limit(min(limit, 200))
+            .offset(offset)
+        )
+        if event_type:
+            stmt = stmt.where(AuditLogEntry.event_type == event_type)
+        entries = (await session.execute(stmt)).scalars().all()
+
+    return {
+        "entries": [
+            {
+                "id": str(e.id),
+                "event_type": e.event_type,
+                "tenant_id": e.tenant_id,
+                "user_id": e.user_id,
+                "payload_summary": _summarize_payload(e.payload),
+                "hash": e.entry_hash[:16] + "…" if e.entry_hash else None,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in entries
+        ],
+        "count": len(entries),
+        "offset": offset,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SEARCH
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/search")
+async def search_regulations(
+    q: str,
+    country: str | None = None,
+    regulator: str | None = None,
+    limit: int = 10,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Hybrid search: Postgres ILIKE (keyword) + Qdrant semantic (vector).
+    Merges results, deduplicates by regulation id.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Regulation
+    from app.services.rag import get_rag
+    from sqlalchemy import select, or_
+
+    results: dict[str, dict] = {}  # regulation_id → result dict
+
+    # 1. Postgres keyword search
+    async with AsyncSessionLocal() as session:
+        stmt = select(Regulation).where(
+            or_(
+                Regulation.title.ilike(f"%{q}%"),
+                Regulation.code.ilike(f"%{q}%"),
+                Regulation.full_text.ilike(f"%{q}%"),
+            ),
+        ).limit(min(limit, 50))
+        if country:
+            stmt = stmt.where(Regulation.country == country)
+        if regulator:
+            stmt = stmt.where(Regulation.regulator == regulator)
+        regs = (await session.execute(stmt)).scalars().all()
+        for reg in regs:
+            results[str(reg.id)] = {
+                "regulation_id": str(reg.id),
+                "title": reg.title,
+                "code": reg.code,
+                "country": reg.country,
+                "regulator": reg.regulator,
+                "source": "keyword",
+                "score": 1.0,
+            }
+
+    # 2. Qdrant semantic search
+    try:
+        rag = get_rag()
+        chunks = await rag.retrieve(
+            query=q,
+            tenant_id=current_user.tenant_id,
+            top_k=limit,
+            country_filter=country,
+        )
+        for chunk in chunks:
+            reg_id = chunk.get("regulation_id")
+            if reg_id and reg_id not in results:
+                results[reg_id] = {
+                    "regulation_id": reg_id,
+                    "title": chunk.get("title", ""),
+                    "code": chunk.get("code", ""),
+                    "country": chunk.get("country", ""),
+                    "regulator": chunk.get("regulator", ""),
+                    "source": "semantic",
+                    "score": chunk.get("score", 0.0),
+                    "excerpt": chunk.get("text", "")[:300],
+                }
+            elif reg_id and results[reg_id]["source"] == "keyword":
+                results[reg_id]["source"] = "hybrid"
+                results[reg_id]["score"] = max(results[reg_id]["score"], chunk.get("score", 0.0))
+                results[reg_id]["excerpt"] = chunk.get("text", "")[:300]
+    except Exception:
+        pass  # Qdrant unavailable — keyword results still returned
+
+    merged = sorted(results.values(), key=lambda x: x["score"], reverse=True)
+    return {"results": merged[:limit], "count": len(merged), "query": q}
