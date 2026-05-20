@@ -1221,3 +1221,68 @@ async def list_audit_log(
         "offset": offset,
     }
 
+
+# ═══════════════════════════════════════════════════════════════════
+# Compliance Score
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/compliance/score/{entity_id}")
+async def get_compliance_score(
+    entity_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return the compliance score for a single entity (% obligations satisfied)."""
+    from app.services.compliance_score import compute_score
+    score = await compute_score(entity_id=entity_id, tenant_id=current_user.tenant_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return {
+        "entity_id": score.entity_id,
+        "entity_name": score.entity_name,
+        "score_pct": score.score_pct,
+        "total_obligations": score.total_obligations,
+        "satisfied_obligations": score.satisfied_obligations,
+        "unsatisfied_obligations": score.total_obligations - score.satisfied_obligations,
+        "breakdown": [
+            {
+                "obligation_id": o.obligation_id,
+                "title": o.title,
+                "type": o.obligation_type,
+                "satisfied": o.is_satisfied,
+                "control": o.control_label,
+            }
+            for o in score.breakdown
+        ],
+        "tenant_id": score.tenant_id,
+    }
+
+
+@router.get("/compliance/scores")
+async def list_compliance_scores(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """List compliance scores for all entities in the tenant."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import ComplianceEntity
+    from app.services.compliance_score import compute_score
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        entities = (await session.execute(
+            select(ComplianceEntity).where(
+                ComplianceEntity.tenant_id == current_user.tenant_id
+            )
+        )).scalars().all()
+
+    scores = []
+    for entity in entities:
+        score = await compute_score(entity_id=str(entity.id), tenant_id=current_user.tenant_id)
+        if score:
+            scores.append({
+                "entity_id": score.entity_id,
+                "entity_name": score.entity_name,
+                "score_pct": score.score_pct,
+                "total_obligations": score.total_obligations,
+                "satisfied_obligations": score.satisfied_obligations,
+            })
+    return {"scores": scores, "count": len(scores)}
