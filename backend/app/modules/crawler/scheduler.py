@@ -97,7 +97,7 @@ async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
     """Run all crawlers sequentially (respects NVIDIA 40 RPM limit)."""
     from app.services.event_bus import publish
     results = []
-    for run_fn in [run_bcra, run_uif, run_bacen]:
+    for run_fn in [run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv]:
         try:
             results.append(await run_fn(tenant_id=tenant_id))
         except Exception as e:
