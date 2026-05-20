@@ -5,6 +5,9 @@ Schedule:
   BCRA  — every 6 hours
   UIF   — every 12 hours
   BACEN — every 8 hours
+  CMF   — every 12 hours
+  SFC   — every 12 hours
+  CNBV  — every 12 hours
 """
 
 from __future__ import annotations
@@ -47,6 +50,39 @@ async def run_bacen(tenant_id: str = "polkorp") -> dict[str, Any]:
     logger.info("BACEN crawl complete: %s", result)
     d = result.to_dict()
     await publish(f"crawler:{tenant_id}", {"regulator": "BACEN", **d})
+    return d
+
+
+async def run_cmf(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.cmf_crawler import CMFCrawler
+    from app.services.event_bus import publish
+    crawler = CMFCrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("CMF crawl complete: %s", result)
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "CMF", **d})
+    return d
+
+
+async def run_sfc(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.sfc_crawler import SFCCrawler
+    from app.services.event_bus import publish
+    crawler = SFCCrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("SFC crawl complete: %s", result)
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "SFC", **d})
+    return d
+
+
+async def run_cnbv(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.cnbv_crawler import CNBVCrawler
+    from app.services.event_bus import publish
+    crawler = CNBVCrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("CNBV crawl complete: %s", result)
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "CNBV", **d})
     return d
 
 

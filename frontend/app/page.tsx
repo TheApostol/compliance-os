@@ -808,6 +808,8 @@ export default function Home() {
               { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
               { id: 'graph', label: 'Graph', desc: 'Compliance relationship graph' },
               { id: 'crawler', label: 'Crawler', desc: 'BCRA + UIF live feed' },
+              { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+              { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
             ].map(m => (
               <button
                 key={m.id}
@@ -2134,6 +2136,148 @@ export default function Home() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ── Audit Log ────────────────────────────────────────────────────── */}
+          {active === 'audit' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Audit Log</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Tamper-evident hash-chained log of every compliance decision and AI inference.
+              </p>
+
+              <div className="flex gap-3 mb-4">
+                <select
+                  value={auditFilter}
+                  onChange={e => setAuditFilter(e.target.value)}
+                  className="p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600 min-w-48"
+                >
+                  <option value="">All event types</option>
+                  {auditEventTypes.map(et => (
+                    <option key={et} value={et}>{et}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={fetchAudit}
+                  disabled={auditLoading}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {auditLoading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+
+              {auditLoading && auditEntries.length === 0 ? (
+                <SkeletonTable rows={5} cols={5} />
+              ) : auditEntries.length === 0 ? (
+                <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                  No audit entries found.
+                </div>
+              ) : (
+                <div className="border border-zinc-700 rounded-md overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-700 bg-zinc-900">
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Event Type</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Summary</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">User</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Hash</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditEntries.map((e: any, i: number) => (
+                        <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                          <td className="px-4 py-2.5 text-xs font-mono text-zinc-300">{e.event_type ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs text-zinc-400 max-w-xs truncate">{e.payload_summary || '—'}</td>
+                          <td className="px-4 py-2.5 text-xs font-mono text-zinc-500">{e.user_id ? String(e.user_id).slice(0, 8) : '—'}</td>
+                          <td className="px-4 py-2.5 text-xs font-mono text-zinc-600">{e.hash ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs text-zinc-500">
+                            {e.created_at ? new Date(e.created_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' }) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Search ───────────────────────────────────────────────────────── */}
+          {active === 'search' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Search</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Hybrid keyword + semantic search across regulations. Keyword results from Postgres, semantic from Qdrant.
+              </p>
+
+              <div className="flex gap-3 mb-6">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && doSearch()}
+                  placeholder="e.g. UIF suspicious activity reporting, AML threshold..."
+                  className="flex-1 p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                />
+                <button
+                  onClick={doSearch}
+                  disabled={searchLoading || !searchQuery.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {searchLoading ? 'Searching...' : 'Search'}
+                </button>
+              </div>
+
+              {searchLoading && searchResults.length === 0 && (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="p-4 bg-zinc-900 border border-zinc-800 rounded-md animate-pulse space-y-2">
+                      <div className="h-3 bg-zinc-800 rounded w-3/4" />
+                      <div className="h-3 bg-zinc-800 rounded w-1/2" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!searchLoading && searchResults.length === 0 && searchQuery.trim() && (
+                <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                  No results found for &ldquo;{searchQuery}&rdquo;.
+                </div>
+              )}
+
+              {searchResults.length > 0 && (
+                <div className="space-y-3">
+                  {searchResults.map((r: any, i: number) => (
+                    <div key={i} className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="font-medium text-sm text-zinc-100">{r.title || '(No title)'}</div>
+                        <span className={`shrink-0 text-xs px-2 py-0.5 rounded border font-mono ${
+                          r.source === 'hybrid'
+                            ? 'bg-purple-950 text-purple-300 border-purple-800'
+                            : r.source === 'semantic'
+                            ? 'bg-blue-950 text-blue-300 border-blue-800'
+                            : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                        }`}>
+                          {r.source}
+                        </span>
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {r.regulator && <span>{r.regulator}</span>}
+                        {r.regulator && r.country && <span className="text-zinc-700"> · </span>}
+                        {r.country && <span>{r.country}</span>}
+                      </div>
+                      {r.excerpt && (
+                        <p className="text-xs text-zinc-400 leading-relaxed line-clamp-3">{r.excerpt}</p>
+                      )}
+                      {r.code && (
+                        <div className="font-mono text-xs text-zinc-600">{r.code}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

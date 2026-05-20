@@ -1002,6 +1002,151 @@ async def revoke_api_key(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# WEBHOOKS
+# ═══════════════════════════════════════════════════════════════════
+
+class WebhookCreate(BaseModel):
+    name: str
+    url: str
+    secret: str | None = None
+    events: list[str] = Field(default_factory=list)
+
+
+def _mask_secret(secret: str | None) -> str | None:
+    """Return masked version of a secret: show first 4 chars + asterisks."""
+    if not secret:
+        return None
+    return secret[:4] + "****"
+
+
+@router.post("/webhooks", status_code=201)
+async def create_webhook(
+    body: WebhookCreate,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Create a webhook config for the current tenant. Secret is masked in the response."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+
+    async with AsyncSessionLocal() as session:
+        hook = WebhookConfig(
+            tenant_id=current_user.tenant_id,
+            name=body.name,
+            url=body.url,
+            secret=body.secret,
+            events=body.events,
+        )
+        session.add(hook)
+        await session.commit()
+        await session.refresh(hook)
+
+    return {
+        "id": hook.id,
+        "name": hook.name,
+        "url": hook.url,
+        "secret": _mask_secret(hook.secret),
+        "events": hook.events or [],
+        "is_active": hook.is_active,
+        "last_triggered_at": hook.last_triggered_at.isoformat() if hook.last_triggered_at else None,
+        "last_status_code": hook.last_status_code,
+        "created_at": hook.created_at.isoformat() if hook.created_at else None,
+    }
+
+
+@router.get("/webhooks")
+async def list_webhooks(current_user: CurrentUser = Depends(get_current_user)):
+    """List all webhooks for the current tenant. Secrets are masked."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        hooks = (
+            await session.execute(
+                select(WebhookConfig).where(WebhookConfig.tenant_id == current_user.tenant_id)
+            )
+        ).scalars().all()
+
+    return [
+        {
+            "id": h.id,
+            "name": h.name,
+            "url": h.url,
+            "secret": _mask_secret(h.secret),
+            "events": h.events or [],
+            "is_active": h.is_active,
+            "last_triggered_at": h.last_triggered_at.isoformat() if h.last_triggered_at else None,
+            "last_status_code": h.last_status_code,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+        }
+        for h in hooks
+    ]
+
+
+@router.delete("/webhooks/{webhook_id}")
+async def delete_webhook(
+    webhook_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Soft-delete a webhook by setting is_active=False."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        hook = (
+            await session.execute(
+                select(WebhookConfig).where(
+                    WebhookConfig.id == webhook_id,
+                    WebhookConfig.tenant_id == current_user.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not hook:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+
+        hook.is_active = False
+        await session.commit()
+
+    return {"deleted": True}
+
+
+@router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(
+    webhook_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Send a test payload to the webhook URL."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+    from app.services.webhook_service import deliver
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        hook = (
+            await session.execute(
+                select(WebhookConfig).where(
+                    WebhookConfig.id == webhook_id,
+                    WebhookConfig.tenant_id == current_user.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    if not hook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    delivered = await deliver(
+        webhook_id=hook.id,
+        url=hook.url,
+        secret=hook.secret,
+        event="webhook.test",
+        data={"message": "Test delivery from ComplianceOS"},
+    )
+    return {"delivered": delivered}
+
+
+# ═══════════════════════════════════════════════════════════════════
 # AUDIT LOG
 # ═══════════════════════════════════════════════════════════════════
 
@@ -1076,83 +1221,3 @@ async def list_audit_log(
         "offset": offset,
     }
 
-
-# ═══════════════════════════════════════════════════════════════════
-# SEARCH
-# ═══════════════════════════════════════════════════════════════════
-
-@router.get("/search")
-async def search_regulations(
-    q: str,
-    country: str | None = None,
-    regulator: str | None = None,
-    limit: int = 10,
-    current_user: CurrentUser = Depends(get_current_user),
-):
-    """
-    Hybrid search: Postgres ILIKE (keyword) + Qdrant semantic (vector).
-    Merges results, deduplicates by regulation id.
-    """
-    from app.db.base import AsyncSessionLocal
-    from app.db.models import Regulation
-    from app.services.rag import get_rag
-    from sqlalchemy import select, or_
-
-    results: dict[str, dict] = {}  # regulation_id → result dict
-
-    # 1. Postgres keyword search
-    async with AsyncSessionLocal() as session:
-        stmt = select(Regulation).where(
-            or_(
-                Regulation.title.ilike(f"%{q}%"),
-                Regulation.code.ilike(f"%{q}%"),
-                Regulation.full_text.ilike(f"%{q}%"),
-            ),
-        ).limit(min(limit, 50))
-        if country:
-            stmt = stmt.where(Regulation.country == country)
-        if regulator:
-            stmt = stmt.where(Regulation.regulator == regulator)
-        regs = (await session.execute(stmt)).scalars().all()
-        for reg in regs:
-            results[str(reg.id)] = {
-                "regulation_id": str(reg.id),
-                "title": reg.title,
-                "code": reg.code,
-                "country": reg.country,
-                "regulator": reg.regulator,
-                "source": "keyword",
-                "score": 1.0,
-            }
-
-    # 2. Qdrant semantic search
-    try:
-        rag = get_rag()
-        chunks = await rag.retrieve(
-            query=q,
-            tenant_id=current_user.tenant_id,
-            top_k=limit,
-            country_filter=country,
-        )
-        for chunk in chunks:
-            reg_id = chunk.get("regulation_id")
-            if reg_id and reg_id not in results:
-                results[reg_id] = {
-                    "regulation_id": reg_id,
-                    "title": chunk.get("title", ""),
-                    "code": chunk.get("code", ""),
-                    "country": chunk.get("country", ""),
-                    "regulator": chunk.get("regulator", ""),
-                    "source": "semantic",
-                    "score": chunk.get("score", 0.0),
-                    "excerpt": chunk.get("text", "")[:300],
-                }
-            elif reg_id and results[reg_id]["source"] == "keyword":
-                results[reg_id]["source"] = "hybrid"
-                results[reg_id]["score"] = max(results[reg_id]["score"], chunk.get("score", 0.0))
-                results[reg_id]["excerpt"] = chunk.get("text", "")[:300]
-    except Exception:
-        pass  # Qdrant unavailable — keyword results still returned
-
-    merged = sorted(results.values(), key=lambda x: x["score"], reverse=True)
-    return {"results": merged[:limit], "count": len(merged), "query": q}
