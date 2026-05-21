@@ -140,14 +140,11 @@ async def test_workflow_severity_passed_through():
     session = _make_async_session()
     captured_workflows: list = []
 
-    original_add = session.add
-
     def _capture_add(obj):
         if isinstance(obj, Workflow):
             captured_workflows.append(obj)
-        return original_add(obj)
 
-    session.add.side_effect = _capture_add
+    session.add = MagicMock(side_effect=_capture_add)
     fake_wf_id = uuid.uuid4()
 
     def _set_wf_attrs(wf):
@@ -403,7 +400,7 @@ async def test_safe_downstream_hooks_does_not_raise_on_rag_failure():
     crawler = LatamRegulatoryCrawler.__new__(LatamRegulatoryCrawler)
 
     with patch(
-        "app.modules.crawler.latam_regulatory_crawler.get_rag",
+        "app.services.rag.get_rag",
         side_effect=Exception("RAG unavailable"),
     ):
         # Should complete without raising
