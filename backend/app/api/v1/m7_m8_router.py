@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.core.auth import CurrentUser, get_current_user
+from app.core.auth import CurrentUser, get_current_user, require_admin
 from app.modules.workflows.engine import get_workflow_engine
 from app.modules.predictive.engine import get_predictive_engine
+from app.modules.crawler.latam_regulatory_crawler import crawl_latam_regulator
 
 router = APIRouter(prefix='/api/v1', tags=['m7-m8'])
 
@@ -39,4 +40,17 @@ async def simulate_market_entry(req: ExpansionSimulationRequest, current_user: C
     return await get_predictive_engine().simulate_market_entry(
         business_model=req.business_model,
         countries=req.countries,
+    )
+
+
+@router.post('/crawler/latam/{regulator}')
+async def run_latam_regulatory_crawler(
+    regulator: str,
+    store: bool = Query(default=True),
+    admin: CurrentUser = Depends(require_admin),
+):
+    return await crawl_latam_regulator(
+        regulator=regulator,
+        tenant_id=admin.tenant_id,
+        store=store,
     )
