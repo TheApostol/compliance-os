@@ -62,6 +62,18 @@ class Settings(BaseSettings):
 
     # ── Database ───────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://complianceos:complianceos@db:5432/complianceos"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: Any) -> str:
+        """Railway provides postgres:// — normalize to postgresql+asyncpg://."""
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+asyncpg://", 1)
+            if v.startswith("postgresql://") and "+asyncpg" not in v:
+                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
+
     postgres_user: str = "complianceos"
     postgres_password: str = "complianceos"
     postgres_db: str = "complianceos"
