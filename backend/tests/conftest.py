@@ -56,16 +56,19 @@ def test_client() -> TestClient:
     - auth dependency overridden (no real JWT / DB needed)
     - lifespan events disabled (no real DB / Qdrant / scheduler)
     """
+    from contextlib import asynccontextmanager
     from app.main import app
 
-    # Override auth so endpoints don't need a real JWT or DB
+    @asynccontextmanager
+    async def _noop_lifespan(app):
+        yield
+
+    app.router.lifespan_context = _noop_lifespan
     app.dependency_overrides[get_current_user] = _override_auth
 
-    # Use raise_server_exceptions=True (default) so test failures surface clearly
     with TestClient(app, raise_server_exceptions=True) as client:
         yield client
 
-    # Clean up override after the session
     app.dependency_overrides.pop(get_current_user, None)
 
 
