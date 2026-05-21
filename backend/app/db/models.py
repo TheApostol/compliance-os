@@ -66,6 +66,7 @@ class Tenant(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     settings = Column(JSONB, default=dict)
+    vertical = Column(String(50), default="FINTECH")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -407,4 +408,44 @@ class DeadlineAlert(Base):
     __table_args__ = (
         Index("ix_alerts_tenant_ack", "tenant_id", "is_acknowledged"),
         UniqueConstraint("tenant_id", "obligation_id", name="uq_alert_tenant_obligation"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MULTI-VERTICAL SUPPORT
+# ═══════════════════════════════════════════════════════════════════
+
+class VerticalRegulator(Base):
+    """Registry of regulators per vertical and country."""
+    __tablename__ = "vertical_regulators"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vertical = Column(String(50), nullable=False, index=True)
+    country = Column(String(10), nullable=False)
+    regulator_code = Column(String(20), nullable=False)
+    regulator_name = Column(Text, nullable=False)
+    regulator_url = Column(Text)
+    schedule_hours = Column(Integer, default=24)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_vr_vertical", "vertical"),
+        UniqueConstraint("vertical", "country", "regulator_code", name="uq_vr_vertical_country_code"),
+    )
+
+
+class VerticalObligationType(Base):
+    """Obligation types and defaults per vertical."""
+    __tablename__ = "vertical_obligation_types"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vertical = Column(String(50), nullable=False, index=True)
+    obligation_type = Column(String(100), nullable=False)
+    description = Column(Text)
+    default_deadline_days = Column(Integer)
+    severity = Column(String(20), default="medium")
+
+    __table_args__ = (
+        UniqueConstraint("vertical", "obligation_type", name="uq_vot_vertical_type"),
     )
