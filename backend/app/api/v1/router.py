@@ -1688,18 +1688,17 @@ async def get_kyc_queue(
     """Return open KYC/AML cases ordered by risk score, optionally filtered by risk level."""
     from sqlalchemy import cast, Text, nullslast, desc
     from app.db.models import ComplianceCase, CaseStatus, RiskLevel, Tenant
-    from app.db.session import AsyncSessionLocal
+    from app.db.base import AsyncSessionLocal
 
+    from sqlalchemy import select
     async with AsyncSessionLocal() as db:
-        # Resolve tenant slug → tenant.id (UUID string)
-        tenant_result = await db.execute(
-            __import__("sqlalchemy", fromlist=["select"]).select(Tenant).where(Tenant.slug == current_user.tenant_id)
-        )
-        tenant = tenant_result.scalars().first()
+        # Resolve tenant slug → tenant.id
+        tenant = (await db.execute(
+            select(Tenant).where(Tenant.slug == current_user.tenant_id)
+        )).scalar_one_or_none()
         if not tenant:
-            raise HTTPException(status_code=404, detail="Tenant not found")
+            return {"cases": [], "count": 0}
 
-        from sqlalchemy import select
         stmt = (
             select(ComplianceCase)
             .where(
@@ -1718,30 +1717,11 @@ async def get_kyc_queue(
         stmt = stmt.order_by(
             nullslast(desc(ComplianceCase.ai_risk_score)),
             ComplianceCase.created_at.asc(),
-        )
+        ).offset(offset).limit(limit)
 
-        count_stmt = __import__("sqlalchemy", fromlist=["func"]).select(
-            __import__("sqlalchemy", fromlist=["func"]).func.count()
-        ).select_from(ComplianceCase).where(
-            cast(ComplianceCase.tenant_id, Text) == str(tenant.id),
-            ComplianceCase.status.in_([CaseStatus.OPEN, CaseStatus.UNDER_REVIEW]),
-        )
-        if risk_level:
-            try:
-                rl_enum = RiskLevel[risk_level.upper()]
-                count_stmt = count_stmt.where(ComplianceCase.risk_level == rl_enum)
-            except KeyError:
-                pass
-
-        total_result = await db.execute(count_stmt)
-        total = total_result.scalar() or 0
-
-        stmt = stmt.offset(offset).limit(limit)
-        result = await db.execute(stmt)
-        cases = result.scalars().all()
+        cases = (await db.execute(stmt)).scalars().all()
 
         now = datetime.now(timezone.utc)
-
         items = []
         for c in cases:
             created = c.created_at
@@ -1751,22 +1731,20 @@ async def get_kyc_queue(
 
             ai_analysis = c.ai_analysis or {}
             cached_analysis = ai_analysis.get("rationale", "") if isinstance(ai_analysis, dict) else ""
-            applicable_norms = c.obligations_triggered or []
-            red_flags = c.red_flags or []
 
             items.append({
-                "id":               str(c.id),
-                "entity_name":      c.subject_identifier or "",
-                "risk_score":       c.ai_risk_score,
-                "risk_level":       c.risk_level.value if c.risk_level else None,
-                "flags":            red_flags,
+                "id":                 str(c.id),
+                "entity_name":        c.subject_identifier or "",
+                "risk_score":         c.ai_risk_score,
+                "risk_level":         c.risk_level.value if c.risk_level else None,
+                "flags":              c.red_flags or [],
                 "sla_days_remaining": sla_days_remaining,
-                "created_at":       c.created_at.isoformat() if c.created_at else None,
-                "cached_analysis":  cached_analysis,
-                "applicable_norms": applicable_norms,
+                "created_at":         c.created_at.isoformat() if c.created_at else None,
+                "cached_analysis":    cached_analysis,
+                "applicable_norms":   c.obligations_triggered or [],
             })
 
-        return {"count": total, "items": items}
+        return {"cases": items, "count": len(items)}
 
 
 # ---------------------------------------------------------------------------
@@ -1794,7 +1772,7 @@ async def generate_rof(
     """Generate a formal UIF Argentina RoF draft from a ComplianceCase using AI."""
     from sqlalchemy import cast, Text, select
     from app.db.models import ComplianceCase, Tenant
-    from app.db.session import AsyncSessionLocal
+    from app.db.base import AsyncSessionLocal
     from app.services.ai_orchestrator import get_orchestrator, InferenceRequest, TaskType
     from app.core.audit import append_audit
 
@@ -1803,7 +1781,7 @@ async def generate_rof(
         tenant_result = await db.execute(
             select(Tenant).where(Tenant.slug == current_user.tenant_id)
         )
-        tenant = tenant_result.scalars().first()
+        tenant = tenant_result.scalar_one_or_none()
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant not found")
 
@@ -1811,7 +1789,7 @@ async def generate_rof(
         case_result = await db.execute(
             select(ComplianceCase).where(ComplianceCase.id == req.case_id)
         )
-        case = case_result.scalars().first()
+        case = case_result.scalar_one_or_none()
         if not case:
             raise HTTPException(status_code=404, detail="Case not found")
 
@@ -1846,6 +1824,7 @@ async def generate_rof(
         ))
 
         await append_audit(
+            session=db,
             event_type="rof_generated",
             tenant_id=current_user.tenant_id,
             user_id=current_user.user_id,
@@ -1880,7 +1859,7 @@ async def get_score_history(
     # Compute a base score from existing cases (average risk score inverted)
     from sqlalchemy import cast, Text, select, func
     from app.db.models import ComplianceCase, Tenant
-    from app.db.session import AsyncSessionLocal
+    from app.db.base import AsyncSessionLocal
 
     base_score = 75  # default
 
@@ -1888,7 +1867,7 @@ async def get_score_history(
         tenant_result = await db.execute(
             select(Tenant).where(Tenant.slug == tenant_id)
         )
-        tenant = tenant_result.scalars().first()
+        tenant = tenant_result.scalar_one_or_none()
 
         if tenant:
             avg_result = await db.execute(
@@ -1946,11 +1925,11 @@ async def get_vertical_config(
 
     from sqlalchemy import select
     from app.db.models import Tenant
-    from app.db.session import AsyncSessionLocal
+    from app.db.base import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Tenant).where(Tenant.slug == tenant_id))
-        tenant = result.scalars().first()
+        tenant = result.scalar_one_or_none()
 
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
