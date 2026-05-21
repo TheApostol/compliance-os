@@ -944,6 +944,8 @@ export default function Home() {
               { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
               { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
               { id: 'score', label: 'Compliance', desc: 'Entity compliance scores' },
+              { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflow orchestration' },
+              { id: 'predictive', label: 'M8 — Predictive', desc: 'Jurisdiction risk + market entry' },
             ].map(m => (
               <button
                 key={m.id}
@@ -2744,12 +2746,21 @@ export default function Home() {
                               {daysLeft !== null ? daysLeft : '—'}
                             </td>
                             <td className="px-4 py-2.5 text-xs">
-                              <button
-                                onClick={() => acknowledgeAlert(a.id)}
-                                className="px-2 py-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800"
-                              >
-                                Acknowledge
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => acknowledgeAlert(a.id)}
+                                  className="px-2 py-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800"
+                                >
+                                  Acknowledge
+                                </button>
+                                <button
+                                  onClick={() => createWorkflowFromAlert(a)}
+                                  className="px-2 py-1 text-xs text-blue-400 border border-blue-900 rounded hover:bg-blue-950"
+                                  title="Create remediation workflow"
+                                >
+                                  → Workflow
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         )
@@ -2758,6 +2769,463 @@ export default function Home() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── M7 Workflows ─────────────────────────────────────────────────── */}
+          {active === 'workflows' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">M7 — Workflow Orchestration</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Create and manage remediation workflows. Track steps, approvals, and escalations.
+              </p>
+
+              {selectedWorkflow ? (
+                /* ── Workflow Detail ── */
+                <div>
+                  <button
+                    onClick={() => { setSelectedWorkflow(null); setShowEscalateForm(false); setWorkflowEscalateForm('') }}
+                    className="mb-4 text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1"
+                  >
+                    ← Back to list
+                  </button>
+
+                  {workflowDetailLoading ? (
+                    <SkeletonTable rows={4} cols={5} />
+                  ) : selectedWorkflow.error ? (
+                    <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                      Error: {selectedWorkflow.error}
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-lg font-medium">{selectedWorkflow.title ?? '—'}</h3>
+                        {selectedWorkflow.status && (() => {
+                          const st = selectedWorkflow.status
+                          const cls =
+                            st === 'completed' ? 'bg-green-950 text-green-400 border-green-900' :
+                            st === 'running' ? 'bg-blue-950 text-blue-400 border-blue-900' :
+                            st === 'approval_required' ? 'bg-amber-950 text-amber-400 border-amber-900' :
+                            st === 'failed' || st === 'escalated' ? 'bg-red-950 text-red-400 border-red-900' :
+                            'bg-zinc-800 text-zinc-400 border-zinc-700'
+                          return <span className={`px-2 py-0.5 text-xs rounded border ${cls}`}>{st}</span>
+                        })()}
+                      </div>
+
+                      {/* Steps table */}
+                      {Array.isArray(selectedWorkflow.steps) && selectedWorkflow.steps.length > 0 ? (
+                        <div className="border border-zinc-700 rounded-md overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-zinc-700 bg-zinc-900">
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">#</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Type</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Title</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Status</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Approval</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedWorkflow.steps.map((step: any, si: number) => {
+                                const stepSt = step.status ?? (step.completed ? 'completed' : 'pending')
+                                const stCls =
+                                  stepSt === 'completed' ? 'bg-green-950 text-green-400 border-green-900' :
+                                  stepSt === 'running' ? 'bg-blue-950 text-blue-400 border-blue-900' :
+                                  stepSt === 'approved' ? 'bg-green-950 text-green-400 border-green-900' :
+                                  'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                return (
+                                  <tr key={step.id ?? si} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                    <td className="px-4 py-2.5 text-xs font-mono text-zinc-500">{step.order ?? si + 1}</td>
+                                    <td className="px-4 py-2.5 text-xs text-zinc-400">{step.step_type ?? step.type ?? '—'}</td>
+                                    <td className="px-4 py-2.5 text-xs text-zinc-200">{step.title ?? step.name ?? '—'}</td>
+                                    <td className="px-4 py-2.5 text-xs">
+                                      <span className={`px-1.5 py-0.5 rounded border text-xs ${stCls}`}>{stepSt}</span>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-xs text-zinc-400">
+                                      {step.requires_approval ? 'Yes' : 'No'}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-xs">
+                                      {step.completed ? (
+                                        <span className="text-green-400">&#x2713;</span>
+                                      ) : !step.completed && !step.requires_approval ? (
+                                        <button
+                                          onClick={() => completeWorkflowStep(selectedWorkflow.id, step.id)}
+                                          disabled={workflowStepLoading[step.id]}
+                                          className="px-2 py-1 text-xs text-zinc-300 border border-zinc-600 rounded hover:bg-zinc-800 disabled:opacity-50"
+                                        >
+                                          {workflowStepLoading[step.id] ? '...' : 'Complete'}
+                                        </button>
+                                      ) : !step.completed && step.requires_approval && stepSt === 'pending' ? (
+                                        <button
+                                          onClick={() => approveWorkflowStep(selectedWorkflow.id, step.id)}
+                                          disabled={workflowStepLoading[step.id]}
+                                          className="px-2 py-1 text-xs text-amber-400 border border-amber-900 rounded hover:bg-amber-950 disabled:opacity-50"
+                                        >
+                                          {workflowStepLoading[step.id] ? '...' : 'Approve'}
+                                        </button>
+                                      ) : null}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md text-sm text-zinc-500">
+                          No steps defined for this workflow.
+                        </div>
+                      )}
+
+                      {/* Escalate section */}
+                      <div className="pt-4 border-t border-zinc-800">
+                        {!showEscalateForm ? (
+                          <button
+                            onClick={() => setShowEscalateForm(true)}
+                            className="px-4 py-2 text-sm text-orange-400 border border-orange-900 rounded-md hover:bg-orange-950"
+                          >
+                            Escalate Workflow
+                          </button>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="text-xs uppercase tracking-wider text-zinc-500">Escalate to</div>
+                            <div className="flex gap-3">
+                              <input
+                                type="text"
+                                value={workflowEscalateForm}
+                                onChange={e => setWorkflowEscalateForm(e.target.value)}
+                                placeholder="Assignee name or email"
+                                className="flex-1 p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                              />
+                              <button
+                                onClick={() => escalateWorkflow(selectedWorkflow.id)}
+                                disabled={workflowEscalateLoading || !workflowEscalateForm.trim()}
+                                className="px-4 py-2 text-sm bg-orange-900 text-orange-200 rounded-md hover:bg-orange-800 disabled:opacity-50"
+                              >
+                                {workflowEscalateLoading ? 'Escalating...' : 'Confirm Escalation'}
+                              </button>
+                              <button
+                                onClick={() => { setShowEscalateForm(false); setWorkflowEscalateForm('') }}
+                                className="px-4 py-2 text-sm border border-zinc-700 rounded-md hover:bg-zinc-900"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* ── Workflow List + Create form ── */
+                <div className="space-y-8">
+                  {/* Section A — Create Workflow */}
+                  <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                    <div className="text-xs uppercase tracking-wider text-zinc-500">Create Workflow</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-zinc-500 block mb-1">Title</label>
+                        <input
+                          type="text"
+                          value={workflowForm.title}
+                          onChange={e => setWorkflowForm(f => ({ ...f, title: e.target.value }))}
+                          placeholder="Workflow title"
+                          className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-zinc-500 block mb-1">Trigger source</label>
+                        <input
+                          type="text"
+                          value={workflowForm.trigger_source}
+                          onChange={e => setWorkflowForm(f => ({ ...f, trigger_source: e.target.value }))}
+                          placeholder="e.g. Alert #123, Regulation AR-001"
+                          className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Severity</label>
+                      <select
+                        value={workflowForm.severity}
+                        onChange={e => setWorkflowForm(f => ({ ...f, severity: e.target.value }))}
+                        className="p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                      >
+                        <option value="low">low</option>
+                        <option value="medium">medium</option>
+                        <option value="high">high</option>
+                        <option value="critical">critical</option>
+                      </select>
+                    </div>
+                    <button
+                      onClick={createWorkflow}
+                      disabled={workflowCreateLoading || !workflowForm.title.trim()}
+                      className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                    >
+                      {workflowCreateLoading ? 'Creating...' : 'Create Remediation Workflow'}
+                    </button>
+                  </div>
+
+                  {/* Section B — Workflow List */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-xs uppercase tracking-wider text-zinc-500">Workflows</div>
+                      <button
+                        onClick={fetchWorkflows}
+                        disabled={workflowsLoading}
+                        className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                      >
+                        {workflowsLoading ? 'Loading...' : 'Refresh'}
+                      </button>
+                    </div>
+
+                    {workflowsLoading && workflows.length === 0 ? (
+                      <SkeletonTable rows={4} cols={6} />
+                    ) : workflows.length === 0 ? (
+                      <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                        No workflows yet. Create one above.
+                      </div>
+                    ) : (
+                      <div className="border border-zinc-700 rounded-md overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-zinc-700 bg-zinc-900">
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Title</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Type</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Severity</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Status</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Created</th>
+                              <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {workflows.map((w: any, wi: number) => {
+                              const sev = (w.severity ?? '').toLowerCase()
+                              const sevCls =
+                                sev === 'critical' ? 'bg-red-950 text-red-400 border-red-900' :
+                                sev === 'high' ? 'bg-amber-950 text-amber-400 border-amber-900' :
+                                sev === 'medium' ? 'bg-blue-950 text-blue-400 border-blue-900' :
+                                'bg-zinc-800 text-zinc-400 border-zinc-700'
+                              const st = w.status ?? 'pending'
+                              const stCls =
+                                st === 'completed' ? 'bg-green-950 text-green-400 border-green-900' :
+                                st === 'running' ? 'bg-blue-950 text-blue-400 border-blue-900' :
+                                st === 'approval_required' ? 'bg-amber-950 text-amber-400 border-amber-900' :
+                                st === 'failed' || st === 'escalated' ? 'bg-red-950 text-red-400 border-red-900' :
+                                'bg-zinc-800 text-zinc-400 border-zinc-700'
+                              return (
+                                <tr key={w.id ?? wi} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                  <td className="px-4 py-2.5 text-xs text-zinc-200 max-w-xs truncate">{w.title ?? '—'}</td>
+                                  <td className="px-4 py-2.5 text-xs text-zinc-400">{w.workflow_type ?? w.type ?? '—'}</td>
+                                  <td className="px-4 py-2.5 text-xs">
+                                    <span className={`px-1.5 py-0.5 rounded border text-xs ${sevCls}`}>{sev || '—'}</span>
+                                  </td>
+                                  <td className="px-4 py-2.5 text-xs">
+                                    <span className={`px-1.5 py-0.5 rounded border text-xs ${stCls}`}>{st}</span>
+                                  </td>
+                                  <td className="px-4 py-2.5 text-xs text-zinc-500">
+                                    {w.created_at ? new Date(w.created_at).toLocaleDateString() : '—'}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-xs">
+                                    <button
+                                      onClick={() => fetchWorkflowDetail(w.id)}
+                                      className="px-2 py-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800"
+                                    >
+                                      View
+                                    </button>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── M8 Predictive Intelligence ────────────────────────────────────── */}
+          {active === 'predictive' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">M8 — Predictive Intelligence</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Jurisdiction risk scores and market entry simulation across LATAM regulated markets.
+              </p>
+
+              {/* Section A — Jurisdiction Risk Scores */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-8">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Jurisdiction Risk Scores</div>
+                <button
+                  onClick={fetchJurisdictionRisks}
+                  disabled={jurisdictionRisksLoading}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {jurisdictionRisksLoading ? 'Loading...' : 'Load Risk Scores'}
+                </button>
+
+                {jurisdictionRisksLoading && jurisdictionRisks.length === 0 && (
+                  <SkeletonTable rows={5} cols={4} />
+                )}
+
+                {jurisdictionRisks.length > 0 && (
+                  <div className="border border-zinc-700 rounded-md overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-700 bg-zinc-900">
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Country Code</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Regulatory Velocity</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">AML Strictness</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Innovation Friendliness</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {jurisdictionRisks.map((j: any, ji: number) => {
+                          function scoreCell(val: number | undefined) {
+                            if (val === undefined || val === null) return { bg: '', text: '—' }
+                            const bg =
+                              val <= 40 ? 'bg-green-950 text-green-300' :
+                              val <= 70 ? 'bg-amber-950 text-amber-300' :
+                              'bg-red-950 text-red-300'
+                            return { bg, text: String(val) }
+                          }
+                          const vel = scoreCell(j.regulatory_velocity ?? j.velocity)
+                          const aml = scoreCell(j.aml_strictness ?? j.aml)
+                          const inn = scoreCell(j.innovation_friendliness ?? j.innovation)
+                          return (
+                            <tr key={ji} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                              <td className="px-4 py-2.5 text-xs font-mono text-zinc-300">{j.country_code ?? j.country ?? '—'}</td>
+                              <td className={`px-4 py-2.5 text-xs font-mono ${vel.bg}`}>{vel.text}</td>
+                              <td className={`px-4 py-2.5 text-xs font-mono ${aml.bg}`}>{aml.text}</td>
+                              <td className={`px-4 py-2.5 text-xs font-mono ${inn.bg}`}>{inn.text}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Section B — Market Entry Simulation */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Market Entry Simulation</div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Business model</label>
+                    <input
+                      type="text"
+                      value={marketEntryForm.business_model}
+                      onChange={e => setMarketEntryForm(f => ({ ...f, business_model: e.target.value }))}
+                      placeholder="e.g. fintech_psp, crypto_exchange, lending"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-zinc-500 block mb-1">Countries (comma-separated)</label>
+                    <input
+                      type="text"
+                      value={marketEntryForm.countries}
+                      onChange={e => setMarketEntryForm(f => ({ ...f, countries: e.target.value }))}
+                      placeholder="AR,BR,MX — comma separated"
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={simulateMarketEntry}
+                  disabled={marketEntryLoading || !marketEntryForm.business_model.trim() || !marketEntryForm.countries.trim()}
+                  className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {marketEntryLoading ? 'Simulating...' : 'Simulate Market Entry'}
+                </button>
+
+                {marketEntryLoading && !marketEntryResult && (
+                  <div className="mt-4">
+                    <SkeletonTable rows={3} cols={3} />
+                  </div>
+                )}
+
+                {marketEntryResult && (
+                  <div className="mt-4 space-y-4">
+                    {marketEntryResult.error ? (
+                      <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                        Error: {marketEntryResult.error}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {marketEntryResult.risk_level && (
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-zinc-500">Risk level:</span>
+                            {(() => {
+                              const rl = (marketEntryResult.risk_level ?? '').toLowerCase()
+                              const cls =
+                                rl === 'critical' ? 'bg-red-950 text-red-300 border-red-900' :
+                                rl === 'high' ? 'bg-orange-950 text-orange-300 border-orange-900' :
+                                rl === 'medium-high' ? 'bg-amber-950 text-amber-300 border-amber-900' :
+                                rl === 'medium' ? 'bg-yellow-950 text-yellow-300 border-yellow-900' :
+                                'bg-green-950 text-green-300 border-green-900'
+                              return <span className={`px-2.5 py-1 rounded border text-sm font-medium ${cls}`}>{marketEntryResult.risk_level}</span>
+                            })()}
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4">
+                          {marketEntryResult.regulatory_complexity !== undefined && (
+                            <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-md">
+                              <div className="text-xs text-zinc-500 mb-1">Regulatory complexity</div>
+                              <div className="text-sm text-zinc-200">{marketEntryResult.regulatory_complexity}</div>
+                            </div>
+                          )}
+                          {marketEntryResult.estimated_timeline !== undefined && (
+                            <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-md">
+                              <div className="text-xs text-zinc-500 mb-1">Estimated timeline</div>
+                              <div className="text-sm text-zinc-200">{marketEntryResult.estimated_timeline}</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {Array.isArray(marketEntryResult.key_requirements) && marketEntryResult.key_requirements.length > 0 && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-2">Key requirements</div>
+                            <ul className="space-y-1.5">
+                              {marketEntryResult.key_requirements.map((req: any, ri: number) => (
+                                <li key={ri} className="text-sm text-zinc-300 flex items-start gap-2">
+                                  <span className="text-blue-500 mt-0.5">&#x25CF;</span>
+                                  {typeof req === 'string' ? req : JSON.stringify(req)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {marketEntryResult.jurisdiction_notes && (
+                          <div>
+                            <div className="text-xs text-zinc-500 mb-2">Jurisdiction notes</div>
+                            <div className="p-3 bg-zinc-900 border border-zinc-800 rounded-md text-sm text-zinc-300 whitespace-pre-wrap">
+                              {typeof marketEntryResult.jurisdiction_notes === 'string'
+                                ? marketEntryResult.jurisdiction_notes
+                                : JSON.stringify(marketEntryResult.jurisdiction_notes, null, 2)}
+                            </div>
+                          </div>
+                        )}
+
+                        {!marketEntryResult.risk_level && !marketEntryResult.key_requirements && (
+                          <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md">
+                            <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(marketEntryResult, null, 2)}</pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
