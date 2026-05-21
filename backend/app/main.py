@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
+from app.api.v1.m7_m8_router import router as m7_m8_router
 from app.db.base import Base, engine
 from app.middleware.rate_limit import limiter
 from app.middleware.metrics import setup_metrics
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
     # Ensure all tables exist (idempotent — safe to run on every startup)
     import app.db.models  # noqa: F401 — registers all domain models with Base.metadata
     import app.core.audit  # noqa: F401 — registers AuditLogEntry with Base.metadata
+    import app.modules.workflows.models  # noqa: F401 — registers M7 workflow models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("DB schema verified")
@@ -94,7 +96,7 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 app = FastAPI(
     title=settings.app_name,
     description="AI-native Compliance Operating System for LATAM Regulated Industries",
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
@@ -122,14 +124,16 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 setup_metrics(app)
 
 app.include_router(v1_router)
+app.include_router(m7_m8_router)
 
 
 @app.get("/")
 async def root():
     return {
         "service": settings.app_name,
-        "version": "0.2.0",
+        "version": "0.3.0",
         "environment": settings.app_env,
         "docs": "/docs",
         "api": "/api/v1",
+        "modules": ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"],
     }

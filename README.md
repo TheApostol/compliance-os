@@ -1,160 +1,260 @@
 # ComplianceOS
 
-> **AI-native Compliance Operating System for LATAM Regulated Industries**
+> AI-native Regulatory Intelligence & Compliance Operations Infrastructure for LATAM Regulated Industries.
 
-The operating system for regulated companies in LATAM. Built on NVIDIA NIM, FastAPI, Next.js, PostgreSQL, and Qdrant. AI-orchestrated, modular, multi-tenant by design.
+ComplianceOS transforms regulations into:
+- structured obligations
+- operational workflows
+- remediation pipelines
+- evidence chains
+- predictive regulatory intelligence
+- graph-linked compliance operations
+- AI-assisted governance automation
+
+Built with:
+- FastAPI
+- Next.js 14
+- PostgreSQL
+- Redis
+- Qdrant
+- NVIDIA NIM
+- Multi-tenant AI orchestration
 
 ---
 
-## What this is
+# Platform Modules
 
-Not a dashboard. Not another KYC wrapper. ComplianceOS is **regulatory infrastructure** that turns regulation into structured, machine-readable obligations and orchestrates AI agents to monitor, audit, and act on them continuously.
-
-### Six core modules
-
-| Module | Function | Status |
+| Module | Description | Status |
 |---|---|---|
-| **M1 — Regulatory Intelligence** | Crawls + parses BCRA, UIF, CNV, BACEN, CMF, SFC. Converts regulation into structured obligations. | ✅ Functional |
-| **M2 — Compliance Copilot** | Multi-jurisdiction Q&A. Cross-border regulatory analysis. Policy generation. | ✅ Functional |
-| **M3 — AML/KYC Orchestration** | Red flag detection, OFAC/sanctions screening, EDD workflows. | ✅ Functional |
-| **M4 — Continuous Monitoring** | Transaction anomaly detection, policy drift detection, vendor risk. | ✅ Functional |
-| **M5 — AI Governance** | Self-auditing agents, prompt injection detection, model registry, audit trails. | ✅ Functional |
-| **M6 — Evidence Automation** | OCR of regulator PDFs, structured extraction, evidence chain of custody. | 🚧 Scaffolded |
+| M1 | Regulatory Intelligence | ✅ |
+| M2 | Compliance Copilot | ✅ |
+| M3 | AML / KYC | ✅ |
+| M4 | Monitoring | ✅ |
+| M5 | AI Governance | ✅ |
+| M6 | Evidence Automation | ✅ |
+| M7 | Workflow Orchestration & Remediation | 🚧 Beta |
+| M8 | Predictive Regulatory Intelligence | 🚧 Beta |
 
 ---
 
-## AI Stack (calibrated on real benchmark — May 2026)
+# M7 — Workflow Orchestration & Remediation
 
-| Use case | Primary | Fallback | Quality (real measured) |
-|---|---|---|---|
-| Regulatory parsing (M1) | `meta/llama-3.3-70b-instruct` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Q=100, 21s |
-| Compliance Copilot (M2) | `moonshotai/kimi-k2-instruct` | `meta/llama-3.3-70b-instruct` | Q=100, 30s |
-| KYC/AML screening (M3) | `nvidia/llama-3.3-nemotron-super-49b-v1` | `meta/llama-3.3-70b-instruct` | Q=100, 26s |
-| Transaction monitoring (M4) | `nvidia/llama-3.3-nemotron-super-49b-v1` | `meta/llama-3.3-70b-instruct` | Q=92, 24s |
-| AI Self-audit (M5) | `moonshotai/kimi-k2-instruct` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Q=100, 10s |
+M7 converts:
+- regulations
+- obligations
+- AI outputs
+- alerts
+- evidence
+- compliance risks
 
-All endpoints free via [build.nvidia.com](https://build.nvidia.com). Rate limit: 40 RPM.
+into executable workflows.
 
----
+## Features
 
-## Architecture
+- remediation workflows
+- approval chains
+- escalation paths
+- evidence collection
+- workflow persistence
+- audit-linked execution
+- tenant-scoped operations
+- downstream graph integration
 
-```
-┌────────────────────────────────────────────────────────────┐
-│  Frontend (Next.js 14)                                     │
-│  Dashboard / Copilot UI / Evidence Viewer                  │
-└────────────────────────┬───────────────────────────────────┘
-                         │ REST + SSE
-┌────────────────────────▼───────────────────────────────────┐
-│  API Gateway (FastAPI)                                     │
-│  Auth / Multi-tenant / Rate limiting / Audit logging       │
-└────────────────────────┬───────────────────────────────────┘
-                         │
-┌────────────────────────▼───────────────────────────────────┐
-│  AI Orchestration Layer                                    │
-│  Model selection / Fallback chains / Cost caps / Caching   │
-└─┬───────┬────────┬─────────┬─────────┬─────────┬───────────┘
-  │       │        │         │         │         │
-  ▼       ▼        ▼         ▼         ▼         ▼
-┌────┐ ┌────┐ ┌──────┐ ┌──────────┐ ┌─────────┐ ┌─────┐
-│ M1 │ │ M2 │ │  M3  │ │    M4    │ │   M5    │ │ M6  │
-└────┘ └────┘ └──────┘ └──────────┘ └─────────┘ └─────┘
-  │       │        │         │         │         │
-  ▼       ▼        ▼         ▼         ▼         ▼
-┌────────────────────────────────────────────────────────────┐
-│  PostgreSQL (relational + immutable audit log)             │
-│  Qdrant (vector DB for regulatory RAG)                     │
-│  Redis (cache + rate limiting + job queue)                 │
-└────────────────────────────────────────────────────────────┘
+## Endpoints
+
+```text
+POST /api/v1/workflow/remediation
 ```
 
 ---
 
-## Quickstart
+# M8 — Predictive Regulatory Intelligence
 
-### 1. Configure
-```bash
-cp .env.example .env
-# Edit .env and add your NVIDIA_API_KEY (get one at https://build.nvidia.com)
-# NEVER commit .env
-```
+M8 provides predictive regulatory analysis and jurisdiction intelligence.
 
-### 2. Run
-```bash
-make up      # docker compose up -d --build
-make logs    # follow logs
-```
+## Features
 
-### 3. Open
-- Frontend: http://localhost:3000
-- API docs: http://localhost:8000/docs
-- Qdrant UI: http://localhost:6333/dashboard
+- jurisdiction scoring
+- AML strictness scoring
+- regulatory velocity scoring
+- market-entry simulation
+- enforcement trend analysis
+- expansion risk estimation
 
-### 4. Validate AI
-```bash
-make benchmark   # tests all 6 modules with your NVIDIA key
+## Endpoints
+
+```text
+GET  /api/v1/predict/jurisdiction-risk
+POST /api/v1/simulate/market-entry
 ```
 
 ---
 
-## Repo structure
+# LATAM Regulatory Crawlers
 
+ComplianceOS now includes a unified LATAM crawler engine capable of ingesting data from central banks and regulators across the region.
+
+## Supported Regulators
+
+| Country | Regulator |
+|---|---|
+| Argentina | BCRA |
+| Brazil | BACEN |
+| Chile | BCCh |
+| Peru | BCRP |
+| Mexico | Banxico |
+| Colombia | SFC |
+
+## Features
+
+- async crawling
+- retry handling
+- tenant isolation
+- AI obligation extraction
+- evidence hashing
+- graph integration hooks
+- Qdrant RAG indexing hooks
+- secure credential loading
+- immutable audit-ready ingestion
+
+## Crawler Endpoint
+
+```text
+POST /api/v1/crawler/latam/{regulator}
 ```
-complianceos/
-├── backend/
-│   └── app/
-│       ├── core/              # config, audit log, security
-│       ├── services/          # AI orchestration (NIM router)
-│       ├── modules/           # M1-M6 business logic
-│       ├── api/v1/            # REST endpoints
-│       └── db/                # SQLAlchemy models
-├── frontend/                  # Next.js 14 (App Router)
-├── infra/docker/              # Dockerfiles
-├── docker-compose.yml
-├── Makefile
-├── CLAUDE.md                  # Context for Claude Code
-└── .env.example
+
+Example:
+
+```text
+POST /api/v1/crawler/latam/BCRA
 ```
 
 ---
 
-## Security & Compliance principles (eat your own dog food)
+# Current Architecture
 
-- **Secrets never in code or chat.** Use `.env` locally, Doppler/Infisical/Vault in prod.
-- **Immutable audit log.** Every AI inference, every decision, every override is logged with hash chain.
-- **PII never sent to AI providers** without explicit tenant config + tokenization.
-- **Multi-tenant by default.** Row-level security on every query.
-- **Data residency aware.** Tenant config decides which AI providers are allowed.
-
----
-
-## Working with Claude Code
-
-This repo has a `CLAUDE.md` at the root that gives Claude Code persistent context. Just run `claude` in this directory and it'll know:
-- The full stack and architecture
-- Which models work and which are deprecated
-- All available `make` commands
-- The current task priorities
-
----
-
-## Roadmap
-
-- [x] M1-M5 module scaffolding + functional code
-- [x] AI orchestration with NVIDIA NIM (calibrated routing)
-- [x] Multi-tenant data layer
-- [x] Immutable audit log with hash chain
-- [x] Frontend dashboard MVP
-- [ ] M6 Evidence module (OCR + structured extraction)
-- [ ] Regulatory crawler (AR/BR/MX/CL/CO)
-- [ ] Qdrant RAG over regulations
-- [ ] Compliance graph (Neo4j or Postgres + AGE)
-- [ ] Auth0/JWT integration
-- [ ] Self-hosted NIM containers (data residency)
-- [ ] SOC2 Type II prep
+```text
+Frontend (Next.js 14)
+        ↓
+FastAPI API Gateway
+        ↓
+AI Orchestration Layer
+        ↓
+M1 → M8 Compliance Modules
+        ↓
+Workflow Engine + Predictive Engine
+        ↓
+PostgreSQL + Qdrant + Redis
+        ↓
+Graph + Evidence + Regulatory Crawlers
+```
 
 ---
 
-## License
+# Regulatory Coverage
+
+## Jurisdictions
+
+- Argentina
+- Brazil
+- Mexico
+- Chile
+- Colombia
+- Peru
+- Ecuador
+- Uruguay
+
+## Regulators
+
+- BCRA
+- UIF
+- CNV
+- BACEN
+- CVM
+- CMF
+- SFC
+- CNBV
+- SBS Peru
+- SBS Ecuador
+- BCU
+
+---
+
+# AI Stack
+
+## Models
+
+- Llama 3.3
+- Nemotron
+- Kimi K2
+
+## AI Capabilities
+
+- regulatory parsing
+- obligation extraction
+- evidence extraction
+- workflow remediation
+- predictive scoring
+- RAG retrieval
+- graph contextualization
+
+---
+
+# Enterprise Features
+
+- multi-tenant architecture
+- JWT authentication
+- API keys
+- immutable audit logs
+- RAG retrieval
+- graph intelligence
+- crawler scheduling
+- SSE events
+- observability
+- Prometheus metrics
+- webhook support
+- workflow orchestration
+- predictive intelligence
+
+---
+
+# Strategic Positioning
+
+ComplianceOS is not a generic compliance dashboard.
+
+It is:
+
+> AI-native regulatory intelligence and compliance operations infrastructure for LATAM regulated industries.
+
+---
+
+# Roadmap
+
+## In Progress
+
+- workflow UI
+- remediation dashboards
+- graph explorer
+- regulatory diff engine
+- obligation engine
+- predictive forecasting
+- expansion simulator
+- evidence pipelines
+- automated sanctions ingestion
+
+## Planned
+
+- policy drafting AI
+- enforcement prediction
+- SOC2 readiness
+- ServiceNow integration
+- Jira integration
+- Slack workflows
+- advanced graph RAG
+- regulatory timeline visualization
+
+---
+
+# License
 
 Proprietary — Polkorp Global Ventures
