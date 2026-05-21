@@ -2,12 +2,15 @@
 Crawler Scheduler — APScheduler AsyncIOScheduler integrated with FastAPI lifespan.
 
 Schedule:
-  BCRA  — every 6 hours
-  UIF   — every 12 hours
-  BACEN — every 8 hours
-  CMF   — every 12 hours
-  SFC   — every 12 hours
-  CNBV  — every 12 hours
+  BCRA   — every 6 hours
+  UIF    — every 12 hours
+  BACEN  — every 8 hours
+  CMF    — every 12 hours
+  SFC    — every 12 hours
+  CNBV   — every 12 hours
+  SBS-PE — every 12 hours
+  SBES   — every 12 hours
+  BCU    — every 12 hours
 """
 
 from __future__ import annotations
@@ -86,6 +89,39 @@ async def run_cnbv(tenant_id: str = "polkorp") -> dict[str, Any]:
     return d
 
 
+async def run_sbs_pe(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.sbs_pe_crawler import SBSPECrawler
+    from app.services.event_bus import publish
+    crawler = SBSPECrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("SBS-PE crawl complete: %s", result)
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "SBS", **d})
+    return d
+
+
+async def run_sbs_ec(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.sbs_ec_crawler import SBSECCrawler
+    from app.services.event_bus import publish
+    crawler = SBSECCrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("SBES-EC crawl complete: %s", result)
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "SBES", **d})
+    return d
+
+
+async def run_bcu(tenant_id: str = "polkorp") -> dict[str, Any]:
+    from app.modules.crawler.bcu_crawler import BCUCrawler
+    from app.services.event_bus import publish
+    crawler = BCUCrawler()
+    result: CrawlerResult = await crawler.run(tenant_id=tenant_id)
+    logger.info("BCU crawl complete: %s", result)
+    d = result.to_dict()
+    await publish(f"crawler:{tenant_id}", {"regulator": "BCU", **d})
+    return d
+
+
 async def run_deadline_check(tenant_id: str = "polkorp") -> dict:
     from app.modules.monitoring.deadline_checker import check_deadlines
     result = await check_deadlines(tenant_id=tenant_id)
@@ -97,7 +133,7 @@ async def run_all(tenant_id: str = "polkorp") -> list[dict[str, Any]]:
     """Run all crawlers sequentially (respects NVIDIA 40 RPM limit)."""
     from app.services.event_bus import publish
     results = []
-    for run_fn in [run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv]:
+    for run_fn in [run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv, run_sbs_pe, run_sbs_ec, run_bcu]:
         try:
             results.append(await run_fn(tenant_id=tenant_id))
         except Exception as e:
@@ -131,11 +167,15 @@ def start_scheduler(app=None):
         scheduler.add_job(run_cmf,            IntervalTrigger(hours=12), id="cmf_crawl",      replace_existing=True)
         scheduler.add_job(run_sfc,            IntervalTrigger(hours=12), id="sfc_crawl",      replace_existing=True)
         scheduler.add_job(run_cnbv,           IntervalTrigger(hours=12), id="cnbv_crawl",     replace_existing=True)
+        scheduler.add_job(run_sbs_pe,         IntervalTrigger(hours=12), id="sbs_pe_crawl",   replace_existing=True)
+        scheduler.add_job(run_sbs_ec,         IntervalTrigger(hours=12), id="sbs_ec_crawl",   replace_existing=True)
+        scheduler.add_job(run_bcu,            IntervalTrigger(hours=12), id="bcu_crawl",      replace_existing=True)
         scheduler.add_job(run_deadline_check, IntervalTrigger(hours=24), id="deadline_check", replace_existing=True)
         scheduler.start()
         logger.info(
             "Crawler scheduler started "
-            "(BCRA: 6h, UIF: 12h, BACEN: 8h, CMF: 12h, SFC: 12h, CNBV: 12h, deadline: 24h)"
+            "(BCRA: 6h, UIF: 12h, BACEN: 8h, CMF: 12h, SFC: 12h, CNBV: 12h, "
+            "SBS-PE: 12h, SBES-EC: 12h, BCU: 12h, deadline: 24h)"
         )
         return scheduler
     except ImportError:

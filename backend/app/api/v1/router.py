@@ -29,6 +29,7 @@ from app.core.auth import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 from fastapi import UploadFile, File, Query
+from fastapi.responses import StreamingResponse
 
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
@@ -632,6 +633,9 @@ async def crawler_status():
             "cmf_interval_hours": 12,
             "sfc_interval_hours": 12,
             "cnbv_interval_hours": 12,
+            "sbs_pe_interval_hours": 12,
+            "sbs_ec_interval_hours": 12,
+            "bcu_interval_hours": 12,
         },
         "jobs": {
             "bcra": {"interval_hours": 6, "country": "AR"},
@@ -640,6 +644,9 @@ async def crawler_status():
             "cmf": {"interval_hours": 12, "country": "CL"},
             "sfc": {"interval_hours": 12, "country": "CO"},
             "cnbv": {"interval_hours": 12, "country": "MX"},
+            "sbs_pe": {"interval_hours": 12, "country": "PE"},
+            "sbs_ec": {"interval_hours": 12, "country": "EC"},
+            "bcu": {"interval_hours": 12, "country": "UY"},
         },
     }
 
@@ -654,7 +661,8 @@ async def crawler_run_now(
 ):
     """Trigger an immediate crawler run (admin only)."""
     from app.modules.crawler.scheduler import (
-        run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv, run_all,
+        run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv,
+        run_sbs_pe, run_sbs_ec, run_bcu, run_all,
     )
     reg = (regulator or "all").lower()
     if reg == "bcra":
@@ -669,6 +677,12 @@ async def crawler_run_now(
         return await run_sfc(tenant_id=tenant_id)
     elif reg == "cnbv":
         return await run_cnbv(tenant_id=tenant_id)
+    elif reg == "sbs_pe":
+        return await run_sbs_pe(tenant_id=tenant_id)
+    elif reg == "sbs_ec":
+        return await run_sbs_ec(tenant_id=tenant_id)
+    elif reg == "bcu":
+        return await run_bcu(tenant_id=tenant_id)
     else:
         return await run_all(tenant_id=tenant_id)
 
@@ -1307,6 +1321,29 @@ async def list_compliance_scores(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# M7 — Compliance Gap Analysis
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/compliance/gap-analysis/{entity_id}")
+async def run_compliance_gap_analysis(
+    entity_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Run an AI-powered compliance gap analysis for a registered entity.
+
+    Identifies obligations that apply to the entity but have no linked control (gap),
+    computes the compliance score, and returns AI-generated risk summary and
+    prioritized remediation recommendations.
+    """
+    from app.modules.compliance.gap_analysis import run_gap_analysis
+    result = await run_gap_analysis(entity_id=entity_id, tenant_id=current_user.tenant_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return result.to_dict()
+
+
+# ═══════════════════════════════════════════════════════════════════
 # SEARCH
 # ═══════════════════════════════════════════════════════════════════
 
@@ -1387,3 +1424,165 @@ async def search_regulations(
 
     merged = sorted(results.values(), key=lambda x: x["score"], reverse=True)
     return {"results": merged[:limit], "count": len(merged), "query": q}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# EXPORTS — CSV + PDF
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/export/obligations.csv")
+async def export_obligations_csv_endpoint(
+    country: str | None = Query(default=None, description="2-letter ISO country filter"),
+    regulator: str | None = Query(default=None, description="Regulator filter (e.g. BCRA)"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Export obligations as CSV, optionally filtered by country and/or regulator.
+    JOINs Obligation + Regulation and scopes by tenant_id.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Obligation, Regulation
+    from app.services.export_service import export_obligations_csv
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(Obligation, Regulation)
+            .join(Regulation, Obligation.regulation_id == Regulation.id)
+            .where(Regulation.country != None)  # noqa: E711 — ensures JOIN is present
+        )
+        if country:
+            stmt = stmt.where(Regulation.country == country)
+        if regulator:
+            stmt = stmt.where(Regulation.regulator == regulator)
+
+        rows = (await session.execute(stmt)).all()
+
+    obligations = [
+        {
+            "id":              str(ob.id),
+            "regulation_code": reg.code,
+            "regulator":       reg.regulator,
+            "country":         reg.country,
+            "description":     ob.description,
+            "obligation_type": ob.obligation_type,
+            "deadline":        ob.deadline_rule or "",
+            "created_at":      ob.created_at.isoformat() if ob.created_at else "",
+        }
+        for ob, reg in rows
+    ]
+
+    csv_bytes = export_obligations_csv(obligations)
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=obligations.csv"},
+    )
+
+
+@router.get("/export/compliance-report/{entity_id}.pdf")
+async def export_compliance_report_pdf_endpoint(
+    entity_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Generate a PDF compliance report for a specific entity.
+    Verifies entity belongs to the tenant, computes score, and fetches unacknowledged alerts.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import ComplianceEntity, DeadlineAlert
+    from app.services.compliance_score import compute_score
+    from app.services.export_service import export_compliance_report_pdf
+    from sqlalchemy import select
+
+    # Verify entity belongs to tenant
+    async with AsyncSessionLocal() as session:
+        entity = (await session.execute(
+            select(ComplianceEntity).where(
+                ComplianceEntity.id == entity_id,
+                ComplianceEntity.tenant_id == current_user.tenant_id,
+            )
+        )).scalar_one_or_none()
+
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        # Fetch unacknowledged deadline alerts for this tenant
+        alerts_result = (await session.execute(
+            select(DeadlineAlert).where(
+                DeadlineAlert.tenant_id == current_user.tenant_id,
+                DeadlineAlert.is_acknowledged == False,  # noqa: E712
+            ).order_by(DeadlineAlert.days_remaining)
+        )).scalars().all()
+
+    alerts = [
+        {
+            "regulation_code": a.regulation_code,
+            "title":           a.title,
+            "deadline":        a.deadline.isoformat() if a.deadline else "",
+            "days_remaining":  a.days_remaining,
+            "severity":        a.severity,
+        }
+        for a in alerts_result
+    ]
+
+    score = await compute_score(entity_id=entity_id, tenant_id=current_user.tenant_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail="Could not compute compliance score")
+
+    pdf_bytes = export_compliance_report_pdf(
+        entity_name=entity.name,
+        score=score,
+        obligations=score.breakdown,
+        alerts=alerts,
+        tenant_id=current_user.tenant_id,
+    )
+
+    safe_name = entity.name.replace(" ", "_")[:40]
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=compliance_report_{safe_name}.pdf"
+        },
+    )
+
+
+@router.get("/export/evidence.csv")
+async def export_evidence_csv_endpoint(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Export evidence documents as CSV, scoped to the current tenant.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import EvidenceDocument
+    from app.services.export_service import export_evidence_csv
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        docs = (await session.execute(
+            select(EvidenceDocument).where(
+                EvidenceDocument.tenant_id == current_user.tenant_id,
+            ).order_by(EvidenceDocument.created_at.desc())
+        )).scalars().all()
+
+    documents = [
+        {
+            "id":               str(d.id),
+            "title":            d.filename,
+            "doc_type":         d.source_type or "",
+            "confidence_score": str(d.extraction_confidence or ""),
+            "custody_hash":     d.custody_hash or "",
+            "uploaded_by":      "",   # EvidenceDocument has no uploaded_by field; left blank
+            "created_at":       d.created_at.isoformat() if d.created_at else "",
+        }
+        for d in docs
+    ]
+
+    csv_bytes = export_evidence_csv(documents)
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=evidence.csv"},
+    )
