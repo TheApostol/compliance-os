@@ -943,6 +943,7 @@ export default function Home() {
               { id: 'crawler', label: 'Crawler', desc: 'BCRA + UIF live feed' },
               { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
               { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+              { id: 'score', label: 'Compliance', desc: 'Entity compliance scores' },
             ].map(m => (
               <button
                 key={m.id}
@@ -957,6 +958,19 @@ export default function Home() {
                 <div className="text-xs text-zinc-500">{m.desc}</div>
               </button>
             ))}
+            <button
+              onClick={() => setActive('alerts')}
+              className={`w-full text-left p-3 rounded-md transition ${
+                active === 'alerts'
+                  ? 'bg-zinc-800 border border-zinc-700'
+                  : 'hover:bg-zinc-900'
+              }`}
+            >
+              <div className="text-sm font-medium flex items-center">
+                Alerts{alertsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">{alertsCount}</span>}
+              </div>
+              <div className="text-xs text-zinc-500">Deadline + compliance alerts</div>
+            </button>
             {currentUser?.role === 'admin' && (
               <button
                 onClick={() => setActive('admin')}
@@ -2269,6 +2283,136 @@ export default function Home() {
                   )}
                 </div>
               </div>
+
+              {/* ── Webhooks ── */}
+              <div className="border border-zinc-800 rounded-md p-5 space-y-4 mt-8">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wider text-zinc-500">Webhooks</div>
+                  <button
+                    onClick={fetchWebhooks}
+                    disabled={webhooksLoading}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                  >
+                    {webhooksLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {webhooksLoading && webhooks.length === 0 ? (
+                  <SkeletonTable rows={3} cols={5} />
+                ) : webhooks.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                    No webhooks configured.
+                  </div>
+                ) : (
+                  <div className="border border-zinc-700 rounded-md overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-700 bg-zinc-900">
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Name</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">URL</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Events</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Last Status</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {webhooks.map((w: any, i: number) => (
+                          <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                            <td className="px-4 py-2.5 text-xs text-zinc-200">{w.name ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs font-mono text-zinc-400 max-w-xs truncate">{w.url ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs text-zinc-400">
+                              {Array.isArray(w.events) ? w.events.join(', ') : (w.events ?? '—')}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs">
+                              {w.last_status ? (
+                                <span className={`px-1.5 py-0.5 rounded border text-xs ${w.last_status >= 200 && w.last_status < 300 ? 'bg-green-950 text-green-400 border-green-900' : 'bg-red-950 text-red-400 border-red-900'}`}>
+                                  {w.last_status}
+                                </span>
+                              ) : <span className="text-zinc-600">—</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs flex gap-2">
+                              <button
+                                onClick={() => testWebhook(w.id)}
+                                className="px-2 py-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800"
+                              >
+                                Test
+                              </button>
+                              <button
+                                onClick={() => deleteWebhook(w.id)}
+                                className="px-2 py-1 text-xs text-red-400 border border-red-900 rounded hover:bg-red-950"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {/* Create webhook form */}
+                <div className="pt-2 space-y-3 border-t border-zinc-800">
+                  <div className="text-xs text-zinc-500 uppercase tracking-wider">Add Webhook</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={webhookForm.name}
+                        onChange={e => setWebhookForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="My webhook"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">URL</label>
+                      <input
+                        type="url"
+                        value={webhookForm.url}
+                        onChange={e => setWebhookForm(f => ({ ...f, url: e.target.value }))}
+                        placeholder="https://example.com/webhook"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Secret (optional)</label>
+                      <input
+                        type="password"
+                        value={webhookForm.secret}
+                        onChange={e => setWebhookForm(f => ({ ...f, secret: e.target.value }))}
+                        placeholder="HMAC signing secret"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 block mb-1">Events (comma-separated)</label>
+                      <input
+                        type="text"
+                        value={webhookForm.events}
+                        onChange={e => setWebhookForm(f => ({ ...f, events: e.target.value }))}
+                        placeholder="crawl.complete,alert.created"
+                        className="w-full p-2.5 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono focus:outline-none focus:border-zinc-600"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={createWebhook}
+                    disabled={!webhookForm.name.trim() || !webhookForm.url.trim()}
+                    className="px-5 py-2 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
+                  >
+                    Add Webhook
+                  </button>
+                  {webhookResult && (
+                    <div className={`p-3 rounded-md text-sm border ${webhookResult.error || webhookResult.detail ? 'bg-red-950 border-red-900 text-red-200' : 'bg-zinc-900 border-zinc-800 text-zinc-300'}`}>
+                      {webhookResult.error || webhookResult.detail
+                        ? `Error: ${webhookResult.error ?? webhookResult.detail}`
+                        : <pre className="text-xs font-mono whitespace-pre-wrap">{JSON.stringify(webhookResult, null, 2)}</pre>
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -2409,6 +2553,209 @@ export default function Home() {
                       )}
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Compliance Score ─────────────────────────────────────────────── */}
+          {active === 'score' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Compliance Score</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Entity-level compliance scores based on obligation satisfaction. Click a row to see the obligation breakdown.
+              </p>
+
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">All Entities</div>
+                <button
+                  onClick={fetchScores}
+                  disabled={scoresLoading}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                >
+                  {scoresLoading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+
+              {scoresLoading && scores.length === 0 ? (
+                <SkeletonTable rows={5} cols={3} />
+              ) : scores.length === 0 ? (
+                <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                  No compliance scores available.
+                </div>
+              ) : (
+                <div className="border border-zinc-700 rounded-md overflow-hidden mb-8">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-700 bg-zinc-900">
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Entity Name</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Score %</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Satisfied / Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scores.map((s: any, i: number) => {
+                        const pct = typeof s.score_pct === 'number' ? s.score_pct : typeof s.score === 'number' ? s.score : null
+                        const barColor = pct === null ? 'bg-zinc-600' : pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                        const textColor = pct === null ? 'text-zinc-400' : pct >= 80 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'
+                        return (
+                          <tr
+                            key={i}
+                            onClick={() => fetchEntityScore(s.entity_id ?? s.id ?? String(i))}
+                            className={`border-b border-zinc-800 last:border-0 cursor-pointer hover:bg-zinc-900 ${scoreEntityId === (s.entity_id ?? s.id ?? String(i)) ? 'bg-zinc-900' : ''}`}
+                          >
+                            <td className="px-4 py-2.5 text-xs text-zinc-200">{s.entity_name ?? s.name ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs">
+                              <div className="flex items-center gap-2">
+                                <div className="w-24 bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                                  <div className={`h-1.5 rounded-full ${barColor}`} style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
+                                </div>
+                                <span className={`font-mono ${textColor}`}>{pct !== null ? `${pct}%` : '—'}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs font-mono text-zinc-400">
+                              {s.satisfied !== undefined && s.total !== undefined ? `${s.satisfied} / ${s.total}` : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {scoreDetailLoading && (
+                <div className="mt-4">
+                  <SkeletonTable rows={4} cols={4} />
+                </div>
+              )}
+
+              {selectedEntityScore && !scoreDetailLoading && (
+                <div className="mt-4">
+                  {selectedEntityScore.error && (
+                    <div className="p-4 bg-red-950 border border-red-900 rounded-md text-sm text-red-200">
+                      Error: {selectedEntityScore.error}
+                    </div>
+                  )}
+                  {!selectedEntityScore.error && (
+                    <div>
+                      <div className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Obligation Breakdown</div>
+                      {Array.isArray(selectedEntityScore.obligations) && selectedEntityScore.obligations.length > 0 ? (
+                        <div className="border border-zinc-700 rounded-md overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-zinc-700 bg-zinc-900">
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Title</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Type</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Status</th>
+                                <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Control</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedEntityScore.obligations.map((ob: any, i: number) => (
+                                <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                                  <td className="px-4 py-2.5 text-xs text-zinc-200 max-w-xs truncate">{ob.title ?? ob.description ?? '—'}</td>
+                                  <td className="px-4 py-2.5 text-xs text-zinc-400">{ob.obligation_type ?? ob.type ?? '—'}</td>
+                                  <td className="px-4 py-2.5 text-xs">
+                                    {ob.satisfied ? (
+                                      <span className="text-green-400">&#x2713;</span>
+                                    ) : (
+                                      <span className="text-red-400">&#x2717;</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-xs text-zinc-500 max-w-xs truncate">{ob.control ?? ob.control_description ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md">
+                          <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(selectedEntityScore, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Alerts ───────────────────────────────────────────────────────── */}
+          {active === 'alerts' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Alerts</h2>
+              <p className="text-sm text-zinc-500 mb-6">
+                Unacknowledged deadline and compliance alerts. Click Acknowledge to dismiss.
+              </p>
+
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">
+                  Unacknowledged{alertsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">{alertsCount}</span>}
+                </div>
+                <button
+                  onClick={fetchAlerts}
+                  disabled={alertsLoading}
+                  className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                >
+                  {alertsLoading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+
+              {alertsLoading && alerts.length === 0 ? (
+                <SkeletonTable rows={5} cols={6} />
+              ) : alerts.length === 0 ? (
+                <div className="text-center py-10 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded-md">
+                  No unacknowledged alerts.
+                </div>
+              ) : (
+                <div className="border border-zinc-700 rounded-md overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-700 bg-zinc-900">
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Severity</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Reg. Code</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Title</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Deadline</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Days</th>
+                        <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {alerts.map((a: any, i: number) => {
+                        const sev = (a.severity ?? '').toUpperCase()
+                        const sevBadge =
+                          sev === 'CRITICAL' ? 'bg-red-950 text-red-400 border border-red-900' :
+                          sev === 'HIGH' ? 'bg-orange-950 text-orange-400 border border-orange-900' :
+                          sev === 'MEDIUM' ? 'bg-yellow-950 text-yellow-400 border border-yellow-900' :
+                          'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                        const deadline = a.deadline ? new Date(a.deadline) : null
+                        const daysLeft = deadline ? Math.ceil((deadline.getTime() - Date.now()) / 86400000) : null
+                        const daysColor = daysLeft === null ? 'text-zinc-500' : daysLeft <= 7 ? 'text-red-400' : daysLeft <= 30 ? 'text-orange-400' : 'text-zinc-400'
+                        return (
+                          <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                            <td className="px-4 py-2.5 text-xs">
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${sevBadge}`}>{sev || '—'}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs font-mono text-zinc-400">{a.regulation_code ?? a.code ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs text-zinc-200 max-w-xs truncate">{a.title ?? a.message ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-xs text-zinc-400">{deadline ? deadline.toLocaleDateString() : '—'}</td>
+                            <td className={`px-4 py-2.5 text-xs font-mono ${daysColor}`}>
+                              {daysLeft !== null ? daysLeft : '—'}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs">
+                              <button
+                                onClick={() => acknowledgeAlert(a.id)}
+                                className="px-2 py-1 text-xs text-zinc-400 border border-zinc-700 rounded hover:bg-zinc-800"
+                              >
+                                Acknowledge
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
