@@ -147,6 +147,9 @@ class LatamRegulatoryCrawler:
             "BCRP": self._crawl_bcrp,
             "Banxico": self._crawl_banxico,
             "SFC": self._crawl_sfc,
+            "UIF": self._crawl_uif,
+            "SBS_EC": self._crawl_sbs_ec,
+            "BCU": self._crawl_bcu,
         }
         if regulator not in adapters:
             raise ValueError(f"Unsupported regulator: {regulator}. Supported: {', '.join(adapters.keys())}")
@@ -247,6 +250,106 @@ class LatamRegulatoryCrawler:
             return [CrawlResult(source="SFC Open Data", country="CO", regulator="SFC", code="SFC_OPEN_DATA", title="SFC Open Data", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url)]
         except Exception as exc:
             log.warning("sfc_crawl_error", error=str(exc))
+            return []
+
+    async def _crawl_uif(self, tenant_id: str, **kwargs) -> List[CrawlResult]:
+        url = "https://www.argentina.gob.ar/uif/resoluciones"
+        try:
+            resp = await self.client.get(url, headers={"Accept": "text/html"})
+            if resp.status_code != 200 or not resp.text.strip():
+                log.warning("uif_crawl_unavailable", status=resp.status_code, url=url)
+                unavailable_hash = hashlib.sha256(b"uif_unavailable").hexdigest()
+                return [CrawlResult(
+                    source="UIF Argentina",
+                    country="AR",
+                    regulator="UIF",
+                    code="UIF_UNAVAILABLE",
+                    title="UIF index unavailable",
+                    raw_data={"url": url, "status": resp.status_code},
+                    extracted_obligations=[],
+                    evidence_hash=unavailable_hash,
+                    tenant_id=tenant_id,
+                    source_url=url,
+                )]
+            html_text = resp.text
+            # Look for resolution links matching resoluciones/res- or PDF links with "RES"
+            import re
+            links = re.findall(r'href=["\']([^"\']*(?:resoluciones/res-|RES)[^"\']*)["\']', html_text, re.IGNORECASE)
+            snippet = html_text[:5000]
+            data = {"url": url, "resolution_links": links[:20], "html_snippet": snippet}
+            obligations = await self._parse_with_ai(regulator="UIF", title="Resoluciones Index", data=data, tenant_id=tenant_id)
+            return [CrawlResult(
+                source="UIF Argentina Resoluciones",
+                country="AR",
+                regulator="UIF",
+                code="UIF_RESOLUCIONES",
+                title="UIF Argentina Resoluciones",
+                raw_data=data,
+                extracted_obligations=obligations,
+                evidence_hash=self._hash_payload(data),
+                tenant_id=tenant_id,
+                source_url=url,
+            )]
+        except Exception as exc:
+            log.warning("uif_crawl_error", error=str(exc))
+            return []
+
+    async def _crawl_sbs_ec(self, tenant_id: str, **kwargs) -> List[CrawlResult]:
+        url = "https://www.superbancos.gob.ec/bancos/resoluciones/"
+        try:
+            resp = await self.client.get(url, headers={"Accept": "text/html"})
+            if resp.status_code != 200 or not resp.text.strip():
+                log.warning("sbs_ec_crawl_unavailable", status=resp.status_code, url=url)
+                return []
+            html_text = resp.text
+            import re
+            links = re.findall(r'href=["\']([^"\']*resoluci[^"\']*)["\']', html_text, re.IGNORECASE)
+            snippet = html_text[:5000]
+            data = {"url": url, "regulation_links": links[:20], "html_snippet": snippet}
+            obligations = await self._parse_with_ai(regulator="SBS_EC", title="Resoluciones Index", data=data, tenant_id=tenant_id)
+            return [CrawlResult(
+                source="SBS Ecuador Resoluciones",
+                country="EC",
+                regulator="SBS_EC",
+                code="SBS_EC_RESOLUCIONES",
+                title="SBS Ecuador Resoluciones",
+                raw_data=data,
+                extracted_obligations=obligations,
+                evidence_hash=self._hash_payload(data),
+                tenant_id=tenant_id,
+                source_url=url,
+            )]
+        except Exception as exc:
+            log.warning("sbs_ec_crawl_error", error=str(exc))
+            return []
+
+    async def _crawl_bcu(self, tenant_id: str, **kwargs) -> List[CrawlResult]:
+        url = "https://www.bcu.gub.uy/Servicios-Financieros-SSF/Circulares/"
+        try:
+            resp = await self.client.get(url, headers={"Accept": "text/html"})
+            if resp.status_code != 200 or not resp.text.strip():
+                log.warning("bcu_crawl_unavailable", status=resp.status_code, url=url)
+                return []
+            html_text = resp.text
+            import re
+            links = re.findall(r'href=["\']([^"\']*[Cc]ircular[^"\']*)["\']', html_text, re.IGNORECASE)
+            snippet = html_text[:5000]
+            data = {"url": url, "circular_links": links[:20], "html_snippet": snippet}
+            obligations = await self._parse_with_ai(regulator="BCU", title="Circulares Index", data=data, tenant_id=tenant_id)
+            return [CrawlResult(
+                source="BCU Uruguay Circulares",
+                country="UY",
+                regulator="BCU",
+                code="BCU_CIRCULARES",
+                title="BCU Uruguay Circulares",
+                raw_data=data,
+                extracted_obligations=obligations,
+                evidence_hash=self._hash_payload(data),
+                tenant_id=tenant_id,
+                source_url=url,
+            )]
+        except Exception as exc:
+            log.warning("bcu_crawl_error", error=str(exc))
             return []
 
     async def store_results(self, results: List[CrawlResult]) -> None:

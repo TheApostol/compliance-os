@@ -274,7 +274,7 @@ async def escalate_workflow(
 
 @router.get('/predict/jurisdiction-risk')
 async def jurisdiction_risk_scores(current_user: CurrentUser = Depends(get_current_user)):
-    return await get_predictive_engine().jurisdiction_risk_scores()
+    return await get_predictive_engine().jurisdiction_risk_scores(tenant_id=current_user.tenant_id)
 
 
 class ExpansionSimulationRequest(BaseModel):
@@ -287,6 +287,7 @@ async def simulate_market_entry(req: ExpansionSimulationRequest, current_user: C
     return await get_predictive_engine().simulate_market_entry(
         business_model=req.business_model,
         countries=req.countries,
+        tenant_id=current_user.tenant_id,
     )
 
 
