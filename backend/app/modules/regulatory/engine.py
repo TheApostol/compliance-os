@@ -288,11 +288,15 @@ class RegulatoryIntelligence:
                         regulator=regulator,
                         code=code,
                         title=title,
-                        full_text=text[:50000],
+                        full_text=text[:50000] if text else None,
                         embedding_status="pending",
                     )
                     session.add(reg)
                     await session.flush()
+                else:
+                    # Refresh title and full_text on re-parse
+                    reg.title = title
+                    reg.full_text = text[:50000] if text else None
 
                 # Remove stale obligations for this regulation
                 await session.execute(

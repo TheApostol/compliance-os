@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search'
+type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search' | 'score' | 'alerts' | 'webhooks'
 
 function SkeletonRow({ cols = 3 }: { cols?: number }) {
   return (
@@ -407,6 +407,7 @@ export default function Home() {
     if (active === 'admin') {
       fetchTenants()
       fetchApiKeys()
+      fetchWebhooks()
     }
   }, [active])
 
@@ -717,6 +718,138 @@ export default function Home() {
       setSearchResults(Array.isArray(data.results) ? data.results : [])
     } catch { setSearchResults([]) }
     finally { setSearchLoading(false) }
+  }
+
+  // ── Compliance Score state ─────────────────────────────────────────────────
+  const [scores, setScores] = useState<any[]>([])
+  const [scoresLoading, setScoresLoading] = useState(false)
+  const [selectedEntityScore, setSelectedEntityScore] = useState<any>(null)
+  const [scoreEntityId, setScoreEntityId] = useState('')
+  const [scoreDetailLoading, setScoreDetailLoading] = useState(false)
+
+  useEffect(() => {
+    if (active === 'score') {
+      fetchScores()
+    }
+  }, [active])
+
+  async function fetchScores() {
+    setScoresLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/compliance/scores`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setScores(Array.isArray(data.scores) ? data.scores : [])
+    } catch { setScores([]) } finally { setScoresLoading(false) }
+  }
+
+  async function fetchEntityScore(entityId: string) {
+    setScoreEntityId(entityId)
+    setScoreDetailLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/compliance/score/${entityId}`, { headers: authHeaders(token) })
+      setSelectedEntityScore(await res.json())
+    } catch (e: any) { setSelectedEntityScore({ error: e.message }) }
+    finally { setScoreDetailLoading(false) }
+  }
+
+  // ── Alerts state ───────────────────────────────────────────────────────────
+  const [alerts, setAlerts] = useState<any[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(false)
+  const [alertsCount, setAlertsCount] = useState(0)
+
+  // Load alerts count once on login
+  useEffect(() => {
+    if (isLoggedIn) fetchAlertsCount()
+  }, [isLoggedIn])
+
+  useEffect(() => {
+    if (active === 'alerts') {
+      fetchAlerts()
+    }
+  }, [active])
+
+  async function fetchAlertsCount() {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/alerts?acknowledged=false`, { headers: authHeaders(token) })
+      const data = await res.json()
+      const list = Array.isArray(data) ? data : (Array.isArray(data.alerts) ? data.alerts : [])
+      setAlertsCount(list.length)
+    } catch { /* silently ignore */ }
+  }
+
+  async function fetchAlerts() {
+    setAlertsLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/alerts?acknowledged=false`, { headers: authHeaders(token) })
+      const data = await res.json()
+      const list = Array.isArray(data) ? data : (Array.isArray(data.alerts) ? data.alerts : [])
+      setAlerts(list)
+      setAlertsCount(list.length)
+    } catch { setAlerts([]) } finally { setAlertsLoading(false) }
+  }
+
+  async function acknowledgeAlert(alertId: string) {
+    try {
+      await fetch(`${API_URL}/api/v1/alerts/${alertId}/acknowledge`, {
+        method: 'POST',
+        headers: authHeaders(token),
+      })
+      fetchAlerts()
+    } catch {}
+  }
+
+  // ── Webhooks state ─────────────────────────────────────────────────────────
+  const [webhooks, setWebhooks] = useState<any[]>([])
+  const [webhooksLoading, setWebhooksLoading] = useState(false)
+  const [webhookForm, setWebhookForm] = useState({ name: '', url: '', secret: '', events: 'crawl.complete' })
+  const [webhookResult, setWebhookResult] = useState<any>(null)
+
+  async function fetchWebhooks() {
+    setWebhooksLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/webhooks`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setWebhooks(Array.isArray(data) ? data : (Array.isArray(data.webhooks) ? data.webhooks : []))
+    } catch { setWebhooks([]) } finally { setWebhooksLoading(false) }
+  }
+
+  async function createWebhook() {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/webhooks`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: webhookForm.name,
+          url: webhookForm.url,
+          secret: webhookForm.secret || undefined,
+          events: webhookForm.events.split(',').map(s => s.trim()).filter(Boolean),
+        }),
+      })
+      const data = await res.json()
+      setWebhookResult(data)
+      if (!data.error && !data.detail) { showToast('Webhook created.'); fetchWebhooks() }
+    } catch (e: any) { setWebhookResult({ error: e.message }) }
+  }
+
+  async function testWebhook(id: string) {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/webhooks/${id}/test`, {
+        method: 'POST',
+        headers: authHeaders(token),
+      })
+      const data = await res.json()
+      showToast(data.success ? 'Test delivered.' : `Test failed: ${data.error ?? 'unknown'}`)
+    } catch {}
+  }
+
+  async function deleteWebhook(id: string) {
+    try {
+      await fetch(`${API_URL}/api/v1/webhooks/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders(token),
+      })
+      fetchWebhooks()
+    } catch {}
   }
 
   // ── Login screen ───────────────────────────────────────────────────────────

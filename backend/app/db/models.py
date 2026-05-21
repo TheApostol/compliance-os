@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, DateTime, Integer, Boolean,
+    Column, String, Text, DateTime, Integer, Boolean,
     ForeignKey, Enum as SAEnum, Index, UniqueConstraint, func
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -94,6 +94,7 @@ class Regulation(Base):
     __tablename__ = "regulations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=True, index=True)  # None = shared/global regulation
     country = Column(String(2), nullable=False, index=True)
     regulator = Column(String(64), nullable=False, index=True)
     code = Column(String(128), nullable=False)
@@ -103,7 +104,7 @@ class Regulation(Base):
     effective_from = Column(DateTime(timezone=True))
     source_url = Column(String(1024))
     source_hash = Column(String(64))
-    full_text = Column(String)
+    full_text = Column(Text, nullable=True)
     embedding_status = Column(String(32), default="pending")
     metadata_json = Column("metadata", JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -1329,14 +1329,16 @@ async def search_regulations(
 
     results: dict[str, dict] = {}  # regulation_id → result dict
 
-    # 1. Postgres keyword search
+    # 1. Postgres keyword search (title + code only; full-text search handled by Qdrant)
     async with AsyncSessionLocal() as session:
         stmt = select(Regulation).where(
             or_(
                 Regulation.title.ilike(f"%{q}%"),
                 Regulation.code.ilike(f"%{q}%"),
-                Regulation.full_text.ilike(f"%{q}%"),
             ),
+        ).where(
+            # Tenant isolation: match tenant's own regulations or shared (tenant_id IS NULL)
+            (Regulation.tenant_id == current_user.tenant_id) | (Regulation.tenant_id.is_(None))
         ).limit(min(limit, 50))
         if country:
             stmt = stmt.where(Regulation.country == country)
