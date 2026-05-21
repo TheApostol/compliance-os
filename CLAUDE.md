@@ -1,299 +1,313 @@
-# ComplianceOS — Project Context for Claude Code
+# CLAUDE.md — ComplianceOS v0.4.0
 
-## What this is
+## Context persistence file for Claude Code
 
-AI-native Compliance Operating System for LATAM Regulated Industries.
-Owner: Federico Carlos Polak (Polkorp Global Ventures).
+Read this file at the start of every session.
+Update it when significant changes are made.
 
-Not a dashboard, not a KYC wrapper. **Regulatory infrastructure** that turns regulation into structured machine-readable obligations and orchestrates AI agents to monitor, audit, and act continuously.
+-----
 
-## Stack
+## PROJECT IDENTITY
 
-- **Backend**: FastAPI + Pydantic v2 + async SQLAlchemy + PostgreSQL
-- **Frontend**: Next.js 14 (App Router) + Tailwind + SWR
-- **Vector DB**: Qdrant (collection: `regulations`, 1024-dim NV-Embed-v2)
-- **Cache**: Redis
-- **AI**: NVIDIA NIM Free Endpoints (build.nvidia.com), 40 RPM rate limit
-- **Container**: Docker Compose (7-service stack)
-- **Observability**: Prometheus (9090) + Grafana (3001)
-- **Migrations**: Alembic (7 versioned migrations)
+**Product:** ComplianceOS
+**Positioning:** AI-native Regulatory Intelligence & Compliance Operations Infrastructure for LATAM regulated industries
+**Owner:** Federico Carlos Polak — Polkorp Global Ventures — Buenos Aires, Argentina
+**Stack:** FastAPI + Python 3.11 · Next.js 14 · PostgreSQL 16 · Qdrant · Redis · Prometheus + Grafana · Docker Compose · NVIDIA NIM (40 RPM free tier)
+**Version:** 0.4.0
+**Branch:** main (after sprint 5 merge)
+**Repo root:** ~/dev/complianceos/
 
-## Modules
+-----
 
-| ID | Name | Status | File |
-|---|---|---|---|
-| M1 | Regulatory Intelligence | ✅ | `backend/app/modules/regulatory/engine.py` |
-| M2 | Compliance Copilot | ✅ | `backend/app/modules/copilot/copilot.py` |
-| M3 | AML/KYC Orchestration | ✅ | `backend/app/modules/kyc_aml/engine.py` |
-| M4 | Continuous Monitoring | ✅ | `backend/app/modules/monitoring/engine.py` |
-| M5 | AI Governance | ✅ | `backend/app/modules/governance/engine.py` |
-| M6 | Evidence Automation | ✅ | `backend/app/modules/evidence/engine.py` |
-| M7 | Compliance Scoring | ✅ | `backend/app/services/compliance_score.py` |
-| M8 | Operational Intelligence | ✅ | `backend/app/api/v1/m7_m8_router.py` |
-| — | LATAM Crawlers | ✅ | `backend/app/modules/crawler/` |
-| — | Compliance Gap Analysis | ✅ | `backend/app/modules/compliance/gap_analysis.py` |
-| — | Workflow Orchestration | ✅ | `backend/app/modules/workflows/engine.py` |
-| — | Predictive Risk | ✅ | `backend/app/modules/predictive/engine.py` |
+## ARCHITECTURE OVERVIEW
 
-## Validated AI models (benchmark 2026-05-11)
+```
+complianceos/
+├── backend/
+│   ├── app/
+│   │   ├── main.py                    ← FastAPI app, router mounting, startup hooks
+│   │   ├── core/
+│   │   │   ├── config.py              ← Settings, CORS (field_validator mode=before)
+│   │   │   └── database.py            ← Async SQLAlchemy engine + session
+│   │   ├── models/                    ← 13 SQLAlchemy models + Alembic migrations
+│   │   ├── routers/                   ← 61 endpoints across 18 routers
+│   │   ├── services/
+│   │   │   └── ai_orchestrator.py     ← ALL AI calls go through here. Never bypass.
+│   │   └── crawlers/                  ← 9 regulatory crawlers
+│   ├── alembic/                       ← 8 migrations (0001 baseline → 0008 workflows)
+│   ├── tests/                         ← 21 test files, ~146 tests
+│   ├── scripts/
+│   │   ├── seed_demo.py               ← Seeds Polkorp tenant + sample regulations
+│   │   └── run_benchmark.py           ← Integrated benchmark all modules
+│   └── requirements.txt
+├── frontend/
+│   ├── app/
+│   │   ├── page.tsx                   ← Landing redirect
+│   │   └── dashboard/
+│   │       ├── page.tsx               ← Main CCO dashboard (Sprint 5A)
+│   │       └── components/            ← Dashboard components
+│   └── (2893 lines total)
+├── docker-compose.yml                  ← PostgreSQL:5433, Qdrant, Redis, Backend, Frontend, Prometheus, Grafana
+├── Makefile                           ← make up/down/logs/seed/benchmark/test
+└── CLAUDE.md                          ← This file
+```
 
-**USE these (verified working):**
-- `nvidia/llama-3.3-nemotron-super-49b-v1` — Q=93.6 overall winner. Slow (33s avg). Best for: M1 parsing, M3 KYC, M4 monitoring.
-- `meta/llama-3.3-70b-instruct` — Q=91.3 balanced. 21s avg. Best speed/quality tradeoff.
-- `moonshotai/kimi-k2-instruct` — Q=91.2 fastest tier-1. 15.8s avg. Q=100 in M2 Copilot and M5 Governance. Multilingual ES/EN/ZH native.
+-----
+
+## MODULE STATUS
+
+|# |Module                 |Status          |Key capability                                                               |
+|--|-----------------------|----------------|-----------------------------------------------------------------------------|
+|M1|Regulatory Intelligence|✅ PRODUCTION    |PDF→obligations, country-aware AR/BR, RAG index, graph hooks, deadline alerts|
+|M2|Compliance Copilot     |✅ PRODUCTION    |RAG-augmented QA (top-4 Qdrant chunks), multi-jurisdiction                   |
+|M3|AML/KYC Orchestration  |✅ PRODUCTION    |Entity screening, sanctions, risk scoring Q=100                              |
+|M4|Continuous Monitoring  |✅ PRODUCTION    |Transaction anomaly, policy drift, Prometheus 5-panel Grafana                |
+|M5|AI Governance          |✅ PRODUCTION    |LLM-as-judge, prompt injection, INSERT-ONLY SHA-256 hash chain               |
+|M6|Evidence Automation    |✅ PRODUCTION    |PDF→SHA-256→obligations→Qdrant, chain of custody                             |
+|M7|Workflow Orchestration |✅ LIVE (beta UI)|Remediation pipelines, escalation, approval chain, audit-linked              |
+|M8|Predictive Intelligence|✅ LIVE (beta UI)|Jurisdiction scoring, market-entry simulation, AI-powered with fallback      |
+
+-----
+
+## AI MODEL ROUTING — NVIDIA NIM (40 RPM limit)
+
+**CRITICAL: ALL AI calls exclusively through `backend/app/services/ai_orchestrator.py`**
+**NEVER import providers directly anywhere else.**
+
+|Model key     |Full model ID                         |Best for                               |Avg latency|
+|--------------|--------------------------------------|---------------------------------------|-----------|
+|`kimi-k2`     |moonshotai/kimi-k2-instruct           |M2 Copilot RAG, M5 Governance, ES/EN/ZH|15s        |
+|`llama-70b`   |meta/llama-3.3-70b-instruct           |M1 parsing, general fallback           |21s        |
+|`nemotron-49b`|nvidia/llama-3.3-nemotron-super-49b-v1|M3 KYC, M4 monitoring, highest quality |33s        |
 
 **DEPRECATED — do not use:**
-- `deepseek-ai/deepseek-v3.1` → EOL 2026-04-15, returns 410. Use `deepseek-ai/deepseek-v3.1-terminus` if needed.
-- `mistralai/mistral-large-2-instruct` → 404. Use `mistralai/mistral-large-3-675b-instruct-2512` if needed.
 
-**Available but not yet benchmarked:**
-- `minimaxai/minimax-m2` (230B MoE, reasoning + function calling)
-- `nvidia/nemotron-3-nano-30b-a3b` (fast/cheap for high-volume)
+- deepseek-ai/deepseek-v3.1 → 410 Gone (EOL 2026-04-15)
+- mistralai/mistral-large-2-instruct → 404
 
-## Working commands
+**Benchmark results (2026-05-12, real data):**
+
+- M1: Q=100, M2: Q=100, M3: Q=100, M4: Q=92, M5: Q=100
+- Cost per full run: $0.000934
+- Total latency: ~90s
+
+-----
+
+## DATABASE — 13 MODELS
+
+### Alembic migrations:
+
+- 0001: baseline (regulations, obligations, compliance_cases, ai_model_registry, evidence_documents)
+- 0002: compliance_entities, graph_vertices, graph_edges, users (UserRole enum)
+- 0003: tenants
+- 0004: api_keys (csk_ prefix, SHA-256 hashed)
+- 0005: deadline_alerts (AlertSeverity: critical/high/medium/low)
+- 0006: webhook_configs (WebhookEvent enum, HMAC-signed delivery)
+- 0007: regulations.full_text, source_url, source_hash
+- 0008: workflows, workflow_steps (WorkflowStatus enum)
+- 0009: tenants.vertical + vertical_regulators + vertical_obligation_types (Sprint 5B)
+
+### Key model notes:
+
+- Audit log: INSERT-ONLY, SHA-256 hash chain, tamper-evident
+- API keys: csk_ prefix, stored as SHA-256 hash, never plaintext
+- All tables: tenant-scoped via tenant_id FK
+
+-----
+
+## API ENDPOINTS — 61 TOTAL
+
+|Group          |Endpoints                                                                                                                        |
+|---------------|---------------------------------------------------------------------------------------------------------------------------------|
+|Auth           |POST /auth/token, /auth/refresh, /auth/register                                                                                  |
+|Regulatory     |POST /regulatory/parse                                                                                                           |
+|Copilot        |POST /copilot/ask (RAG) · GET /copilot/canned-questions                                                                          |
+|KYC            |POST /kyc/screen · GET /kyc/queue · POST /kyc/generate-rof                                                                       |
+|Monitoring     |POST /monitoring/transactions, /monitoring/drift                                                                                 |
+|Governance     |POST /governance/audit, /governance/injection                                                                                    |
+|Evidence       |POST /evidence/extract · GET /evidence/documents{/id}                                                                            |
+|RAG            |GET /rag/status · POST /rag/reindex                                                                                              |
+|Graph          |GET /graph/stats, /graph/regulation/{id}/obligations · CRUD /graph/entities                                                      |
+|Crawler        |GET /crawler/status · POST /crawler/run-now · GET /crawler/events (SSE)                                                          |
+|Compliance     |GET /compliance/score/{id}, /compliance/score/{id}/history · POST /compliance/gap-analysis/{id}                                  |
+|Alerts         |GET /alerts · POST /alerts/{id}/acknowledge, /alerts/run-check                                                                   |
+|Audit          |GET /audit/entries, /audit/event-types                                                                                           |
+|Search         |GET /search (Postgres ILIKE + Qdrant merged)                                                                                     |
+|Export         |GET /export/obligations, /export/compliance-report, /export/evidence                                                             |
+|Workflow (M7)  |POST /workflow/remediation · GET /workflow/{id} · POST /workflow/{id}/steps/{sid}/complete|approve · POST /workflow/{id}/escalate|
+|Predictive (M8)|GET /predict/jurisdiction-risk · POST /simulate/market-entry                                                                     |
+|LATAM Crawler  |POST /crawler/latam/{regulator}                                                                                                  |
+|API Keys       |CRUD /api-keys                                                                                                                   |
+|Webhooks       |CRUD /webhooks · POST /webhooks/{id}/test                                                                                        |
+|Tenants        |CRUD /tenants (admin) · GET /tenant/{id}/vertical-config                                                                         |
+|Health         |GET /health, /health/detailed                                                                                                    |
+
+-----
+
+## REGULATORY CRAWLERS — 9
+
+|Crawler          |Regulator|Country|Schedule|Strategy                            |
+|-----------------|---------|-------|--------|------------------------------------|
+|bcra_crawler.py  |BCRA     |AR     |6h      |3-strategy + A7890–A7894 fallback   |
+|uif_crawler.py   |UIF      |AR     |12h     |keyword + PDF detection             |
+|bacen_crawler.py |BACEN    |BR     |8h      |3-strategy + Circ.3950–3954 fallback|
+|cmf_crawler.py   |CMF      |CL     |12h     |3-strategy + fallback               |
+|sfc_crawler.py   |SFC      |CO     |12h     |3-strategy + fallback               |
+|cnbv_crawler.py  |CNBV     |MX     |12h     |3-strategy + fallback               |
+|sbs_pe_crawler.py|SBS      |PE     |12h     |3-strategy + fallback               |
+|sbs_ec_crawler.py|SBES     |EC     |24h     |3-strategy + fallback               |
+|bcu_crawler.py   |BCU      |UY     |24h     |3-strategy + fallback               |
+
+All crawlers: SHA-256 dedup · exponential backoff · tenant isolation · RAG + graph hooks.
+
+On-demand: POST /crawler/latam/{regulator} covers all 9 + BCCh, BCRP, Banxico.
+
+-----
+
+## AUTHENTICATION & SECURITY
+
+|Feature        |Implementation                                        |
+|---------------|------------------------------------------------------|
+|Local JWT      |HS256 · create_access_token() + create_refresh_token()|
+|Auth0/Clerk    |RS256 JWKS with 1h key cache (JWKSValidator)          |
+|Dev fallback   |X-Tenant-Id header allowed when app_env != production |
+|API Keys       |csk_ prefix · SHA-256 hashed · expiry · last_used_at  |
+|RBAC           |viewer / analyst / admin via require_admin dependency |
+|Rate limiting  |slowapi on AI-heavy endpoints                         |
+|Audit log      |INSERT-ONLY · SHA-256 hash chain · tamper-evident     |
+|Request tracing|X-Request-ID + X-Response-Time-Ms headers             |
+
+-----
+
+## INFRASTRUCTURE
+
+|Service   |Image               |Port     |Status              |
+|----------|--------------------|---------|--------------------|
+|PostgreSQL|postgres:16-alpine  |5433:5432|✅ Healthy           |
+|Qdrant    |qdrant/qdrant:latest|6333     |✅ Healthy (1024-dim)|
+|Redis     |redis:7-alpine      |6379     |✅ Healthy           |
+|Backend   |FastAPI/Python 3.11 |8000     |✅ Healthy           |
+|Frontend  |Next.js 14          |3000     |✅ Healthy           |
+|Prometheus|prom/prometheus     |9090     |✅ Active            |
+|Grafana   |grafana/grafana     |3001     |✅ Active (5 panels) |
+
+**Port note:** PostgreSQL mapped to 5433 (not 5432) to avoid host conflicts.
+
+-----
+
+## OBSERVABILITY
+
+- **Logs:** structlog — ConsoleRenderer (dev) / JSONRenderer (prod)
+- **Metrics:** prometheus-fastapi-instrumentator → Prometheus → Grafana
+- **Grafana panels (5):** req rate, latency p50/p95, in-progress, error rate, [crawl_success_rate — Sprint 5C]
+- **Prometheus alerts (4):** HighErrorRate (>5%), SlowAIResponses (>30s), CrawlerNotRunning (>13h), HighInProgress (>20)
+- **CI/CD:** GitHub Actions — parallel pytest -x -q + ruff lint
+
+-----
+
+## MULTI-VERTICAL SUPPORT (Sprint 5B)
+
+### Verticals & accent colors:
+
+|Vertical       |Accent |Key regulators            |
+|---------------|-------|--------------------------|
+|FINTECH        |#4A9FD4|BCRA, UIF, CNV, BACEN     |
+|CRYPTO_VASP    |#FFE135|BCRA A8094, UIF, CNV, FATF|
+|INSURANCE      |#10B981|SSN, SUSEP, CNSF          |
+|HEALTH_PHARMA  |#EF4444|ANMAT, ANVISA, COFEPRIS   |
+|GAMING         |#8B5CF6|LOTBA, SEGOB, COLJUEGOS   |
+|CAPITAL_MARKETS|#F59E0B|CNV, CVM, CMF             |
+|TELECOM        |#06B6D4|ENACOM, ANATEL, IFT       |
+
+### Tenant config endpoint:
+
+GET /tenant/{id}/vertical-config → { vertical, regulators[], canned_questions[], accent_color }
+
+-----
+
+## KNOWN GAPS — SPRINT 5 BACKLOG
+
+### HIGH PRIORITY:
+
+- [ ] M7 frontend panel (workflow UI, step list, approve/escalate) → Sprint 5A
+- [ ] M8 frontend panel (jurisdiction heatmap, simulation form) → Sprint 5A
+- [ ] Unified CCO dashboard — Lemon Cash → Sprint 5A
+- [ ] GET /kyc/queue endpoint → Sprint 5A
+- [ ] POST /kyc/generate-rof endpoint → Sprint 5A
+- [ ] GET /compliance/score/{id}/history (6 months) → Sprint 5A
+- [ ] GET /copilot/canned-questions?vertical=X → Sprint 5A
+
+### MEDIUM:
+
+- [ ] POST /auth/refresh not wired in router → Sprint 5C
+- [ ] Alert → Workflow auto-trigger (critical alert → auto-create M7 workflow) → Sprint 5C
+- [ ] M8 fallback: return cached result when NVIDIA NIM rate limited → Sprint 5B
+
+### LOW:
+
+- [ ] Alembic full history (0001 is no-op baseline)
+- [ ] BCRA/UIF live smoke test (HTML selectors need validation)
+- [ ] Graph APPLIES_TO auto-gen
+- [ ] Grafana 6th panel: crawl_success_rate
+
+-----
+
+## CRITICAL RULES
+
+1. **ALL AI calls through ai_orchestrator.py** — never direct provider imports
+1. **Never use deprecated models** — deepseek-v3.1 and mistral-large-2 return errors
+1. **Audit log is INSERT-ONLY** — never UPDATE or DELETE audit entries
+1. **Tenant isolation** — every query must filter by tenant_id
+1. **CORS fix** — config.py uses field_validator with mode="before" for flexible parsing
+1. **Port 5432 is mapped to 5433** — use 5433 for external connections
+1. **API keys stored as SHA-256 hash** — never store or log plaintext keys
+1. **pydantic-settings** installed separately from pydantic
+
+-----
+
+## MAKE COMMANDS
 
 ```bash
-make init             # Bootstrap .env from .env.example (first-time setup)
-make up               # docker compose up -d --build
-make down             # docker compose down
-make logs             # tail logs from all services
-make restart          # restart all services
-make ps               # show running containers
-make clean            # WIPES all data + volumes
-
-make seed             # load demo regulatory data
-make benchmark        # test all modules with NVIDIA key
-make test             # run pytest (inside backend container)
-make ci-test          # pytest -x -q --tb=short (CI mode)
-make smoke-test       # trigger crawler + verify DB (requires running stack)
-
-make migrate                  # apply all pending Alembic migrations
-make makemigrations msg=<msg> # generate a new Alembic migration
-make db-migrate-status        # show current Alembic revision
-
-make backend-shell    # shell into backend container
-make db-shell         # psql into the database
-make prometheus       # open Prometheus UI (port 9090)
-make grafana          # open Grafana UI (port 3001, admin/complianceos)
+make up          # Start all services
+make down        # Stop all services  
+make logs        # Follow all logs
+make seed        # Seed Polkorp demo tenant
+make benchmark   # Run integrated benchmark (needs NVIDIA_API_KEY in .env)
+make test        # Run pytest
+make backend-shell  # Shell into backend container
+make db-shell    # psql into PostgreSQL
 ```
 
-## First-time setup
+-----
 
-```bash
-make init          # creates .env from .env.example
-# edit .env and set NVIDIA_API_KEY=nvapi-...
-make up            # starts all 7 services
-make migrate       # applies Alembic migrations
-make seed          # loads demo data
+## ENV VARIABLES (in .env, never commit)
+
+```
+NVIDIA_API_KEY=nvapi-...         # NVIDIA NIM
+DATABASE_URL=postgresql+asyncpg://...
+REDIS_URL=redis://localhost:6379
+QDRANT_URL=http://localhost:6333
+SECRET_KEY=...                   # JWT signing
+AUTH0_DOMAIN=...                 # Optional
+CLERK_JWKS_URL=...               # Optional
+APP_ENV=development              # or production
 ```
 
-## Coding standards
+-----
 
-- **Python**: ruff + type hints + async-first. Target Python 3.11+.
-- **Secrets**: NEVER in code. Use `.env` (already in `.gitignore`).
-- **AI calls**: ALL must go through `app/services/ai_orchestrator.py`. Never call OpenAI/NVIDIA SDK directly from modules.
-- **Audit**: Every compliance decision must be logged via `app/core/audit.py` (hash chain).
-- **Multi-tenant**: every DB query filtered by `tenant_id`. Auth: `get_current_user` dependency injects `CurrentUser(tenant_id, role)`.
-- **JSON parsing**: Use the orchestrator's `_try_parse_json` — it handles ```json wrapping that some models add.
-- **Timeouts**: AI calls timeout at 180s (nemotron can take 70s+).
-- **Logging**: structlog. Never use `print()`. Use `log = structlog.get_logger()`.
-- **Request tracing**: `RequestIDMiddleware` injects `X-Request-ID` on every response.
+## SPRINT HISTORY
 
-## Architecture rules
+|Sprint|Version|Key deliverables                                    |
+|------|-------|----------------------------------------------------|
+|1     |v0.1   |M1-M5 core, basic FastAPI, Docker setup             |
+|2     |v0.2   |M6 evidence, AI orchestrator, NVIDIA NIM benchmark  |
+|3     |v0.2.1 |M7/M8 backend, 9 crawlers, auth hardening, 146 tests|
+|4     |v0.3.0 |RAG improvements, Grafana, CI/CD, multi-tenant      |
+|5A    |v0.4.0 |Lemon Cash dashboard, KYC queue, RoF generation     |
+|5B    |v0.4.1 |Multi-vertical architecture, 6 industry packs       |
+|5C    |v0.4.2 |Auth refresh, alert→workflow trigger, minor fixes   |
 
-1. The AI Orchestrator is the **only** point that talks to AI providers. This gives us routing, fallbacks, rate limiting, cost tracking, and audit in one place.
-2. Every module receives an `AIOrchestrator` instance (DI). Don't instantiate inside modules.
-3. The audit log is **INSERT-ONLY**. Hash chain enforced. Tamper-evident by design.
-4. Tenant data residency policy (`tenant.data_residency_policy`) determines which AI providers are allowed. Honor it.
-5. Auth: `get_current_user` FastAPI dependency returns `CurrentUser`. Dev fallback: `X-Tenant-Id` header allowed when `APP_ENV=development` and no JWT present.
+-----
 
-## Where to find things
-
-### Core
-- Config + env vars: `backend/app/core/config.py`
-- Auth (JWT HS256): `backend/app/core/auth.py` — `create_token`, `decode_token`, `get_current_user`
-- Audit log (hash chain): `backend/app/core/audit.py`
-- Logging config (structlog): `backend/app/core/logging.py`
-- Error handlers: `backend/app/core/errors.py`
-
-### Services
-- **AI Orchestrator** ← read this first: `backend/app/services/ai_orchestrator.py`
-- RAG (Qdrant): `backend/app/services/rag.py` — `embed_regulation()`, `retrieve(query, tenant_id, top_k=4)`
-- Compliance Graph (Postgres+AGE): `backend/app/services/graph_service.py`
-- Compliance Scoring (M7): `backend/app/services/compliance_score.py`
-- Event bus (async pub/sub): `backend/app/services/event_bus.py`
-- Webhook dispatch + retry: `backend/app/services/webhook_service.py`
-- API key generation/validation: `backend/app/services/api_key_service.py`
-- Export (CSV/JSON): `backend/app/services/export_service.py`
-
-### Modules
-- Crawler base (fetch, dedup, retry): `backend/app/modules/crawler/base_crawler.py`
-- BCRA crawler (3 strategies + fallback): `backend/app/modules/crawler/bcra_crawler.py`
-- UIF crawler: `backend/app/modules/crawler/uif_crawler.py`
-- Other LATAM crawlers: `backend/app/modules/crawler/` (SBS Peru/Ecuador, CNBV Mexico, CMF Chile, BCU Uruguay, SFC Colombia)
-- Crawler scheduler (APScheduler): `backend/app/modules/crawler/scheduler.py`
-- Deadline alerts: `backend/app/modules/monitoring/deadline_checker.py`
-- Workflow state machine: `backend/app/modules/workflows/engine.py`
-
-### API
-- Main router (all endpoints): `backend/app/api/v1/router.py`
-- M7/M8 router: `backend/app/api/v1/m7_m8_router.py`
-
-### DB
-- All ORM models: `backend/app/db/models.py`
-- Alembic migrations: `backend/alembic/versions/` (0001–0007)
-
-### Frontend
-- Single-page dashboard: `frontend/app/page.tsx`
-
-### Middleware
-- `backend/app/middleware/request_id.py` — X-Request-ID tracing
-- `backend/app/middleware/metrics.py` — Prometheus metrics
-- `backend/app/middleware/rate_limit.py` — token bucket rate limiting
-
-## API endpoint map
-
-| Group | Key endpoints |
-|---|---|
-| Health | `GET /api/v1/health`, `GET /api/v1/health/detailed` |
-| Auth | `POST /auth/token`, `POST /auth/register` |
-| M1 Regulatory | `POST /parse-regulation` |
-| M2 Copilot | `POST /copilot/query` |
-| M3 KYC/AML | `POST /kyc-screen`, `POST /sanctions-screen` |
-| M4 Monitoring | `POST /monitor-transactions`, `POST /detect-drift` |
-| M5 Governance | `POST /audit-ai-response`, `POST /check-injection` |
-| M6 Evidence | `POST /evidence/extract`, `GET /evidence/documents`, `GET /evidence/documents/{id}` |
-| M7/M8 | `GET /compliance/score`, `GET /governance/status` |
-| Crawler | `POST /crawler/run-now`, `GET /crawler/status`, `GET /crawler/events` (SSE) |
-| Graph | `GET /graph/stats`, `GET /graph/regulation/{id}/obligations`, `GET /graph/entity/{id}/obligations`, `POST /graph/query` (admin) |
-| RAG | `GET /rag/status`, `POST /rag/reindex` |
-| Alerts | `GET /alerts`, `POST /alerts/{id}/acknowledge` |
-| Admin | Tenants, API keys, webhooks, audit logs |
-
-## LATAM Crawlers
-
-9 regulatory crawlers under `backend/app/modules/crawler/`:
-
-| Regulator | Country | File | Schedule |
-|---|---|---|---|
-| BCRA | Argentina | `bcra_crawler.py` | 6h |
-| UIF | Argentina | `uif_crawler.py` | 12h |
-| SBS | Peru | `sbs_pe_crawler.py` | 12h |
-| SBS | Ecuador | `sbs_ec_crawler.py` | 12h |
-| CNBV | Mexico | `cnbv_crawler.py` | 12h |
-| CMF | Chile | `cmf_crawler.py` | 12h |
-| BCU | Uruguay | `bcu_crawler.py` | 12h |
-| SFC | Colombia | `sfc_crawler.py` | 12h |
-
-Crawlers use SHA-256 `source_hash` dedup — same document is never re-processed. Base crawler has exponential-backoff retry and `CrawlerResult` dataclass.
-
-## Compliance Graph (Postgres + Apache AGE)
-
-Graph vertices: `Regulation`, `Obligation`, `Entity` (company/person), `Control`, `Regulator`
-Graph edges: `REQUIRES`, `APPLIES_TO`, `SATISFIES`, `ISSUED_BY`, `CROSS_REFERENCES`
-
-Key methods in `graph_service.py`:
-- `ensure_graph()` — idempotent graph creation
-- `upsert_regulation(regulation)` — vertex + edges
-- `upsert_obligation(obligation)` — vertex + REQUIRES edge
-- `register_entity(entity)` — auto-generates APPLIES_TO edges
-- `cypher_query(query_str)` — raw Cypher (admin-only endpoint)
-
-## Auth
-
-JWT HS256, claims: `sub` (user_id), `tenant_id`, `role` (admin|analyst|viewer), `exp`.
-
-Dev fallback: if `APP_ENV=development` and JWT absent, `X-Tenant-Id` header is accepted (backwards compat for local testing).
-
-RBAC guards: `POST /graph/query`, `POST /crawler/run-now` → admin only.
-
-Future: swap to Auth0/Clerk JWKS via `AUTH_MODE=auth0|clerk` in `.env` without changing downstream code.
-
-## Observability
-
-- **Prometheus** scrapes `http://backend:8000/metrics` every 15s
-- **Grafana** dashboard at port 3001 (auto-provisioned, admin/complianceos)
-- Alert rules: `observability/alert.rules.yml`
-- All API responses include `X-Request-ID` for log correlation
-
-## Tests (22 files, 105+ tests)
-
-```bash
-make test          # run all tests
-make ci-test       # -x -q --tb=short (for CI)
-```
-
-Key test files:
-- `tests/test_orchestrator.py` — AI routing table + fallback chains
-- `tests/test_auth.py`, `test_auth_jwks.py` — JWT + JWKS endpoint
-- `tests/test_evidence.py` — M6 PDF extraction + custody hash
-- `tests/test_crawlers.py` — base crawler dedup + retry (20 tests)
-- `tests/test_crawlers_latam.py`, `test_crawlers_andean.py` — BCRA/UIF/CNBV/SBS parsing
-- `tests/test_graph.py` — vertices, edges, Cypher queries
-- `tests/test_rag.py` — vector embedding + retrieval
-- `tests/test_compliance_score.py` — M7 scoring
-- `tests/test_tenant_isolation.py` — multi-tenancy boundaries
-- `tests/test_webhooks.py`, `test_api_keys.py`, `test_deadline_alerts.py`
-
-`conftest.py` patches env vars before module imports and provides auth override fixtures.
-
-## Style for outputs / commits
-
-- Commit messages: conventional commits (`feat:`, `fix:`, `docs:`, etc.)
-- Branches: `feat/M6-evidence`, `fix/orchestrator-timeout`, etc.
-- PR descriptions: what + why + how to test.
-
-## Workflow Orchestration
-
-### 1. Plan Mode Default
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately
-- Write detailed specs upfront to reduce ambiguity
-
-### 2. Subagent Strategy
-- Use subagents liberally to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
-
-### 3. Self-Improvement Loop
-- After ANY correction from the user: update `tasks/lessons.md` with the pattern
-- Write rules for yourself that prevent the same mistake
-- Review lessons at session start for relevant project
-
-### 4. Verification Before Done
-- Never mark a task complete without proving it works
-- Run tests, check logs, demonstrate correctness
-- Ask yourself: "Would a staff engineer approve this?"
-
-### 5. Demand Elegance (Balanced)
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- Skip this for simple, obvious fixes — don't over-engineer
-
-### 6. Autonomous Bug Fixing
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests — then resolve them
-
-## Task Management
-
-1. Plan First: Write plan to `tasks/todo.md` with checkable items
-2. Verify Plan: Check in before starting implementation
-3. Track Progress: Mark items complete as you go
-4. Explain Changes: High-level summary at each step
-5. Document Results: Add review section to `tasks/todo.md`
-6. Capture Lessons: Update `tasks/lessons.md` after corrections
-
-## Core Principles
-
-- Simplicity First: Make every change as simple as possible. Impact minimal code.
-- No Laziness: Find root causes. No temporary fixes. Senior developer standards.
-- Minimal Impact: Only touch what's necessary. No side effects with new bugs.
-
-## Open tasks (Sprint 3)
-
-1. **Alembic versioned migrations** — `ComplianceEntity`, `GraphVertex/Edge`, `User` tables currently rely on `create_all`. Generate proper versioned migration files.
-2. **Frontend graph visualization** — Currently shows raw JSON. Implement subgraph visualization (D3 or similar).
-3. **Frontend real-time crawler status** — Replace manual refresh with SSE polling of `GET /crawler/events`.
-4. **BCRA/UIF live site smoke test** — Confirm HTML selectors match live site structure; adjust if needed.
-5. **JWT refresh token** — `POST /auth/refresh` endpoint not yet implemented.
-6. **Rate limiting middleware** — Token bucket exists in `middleware/rate_limit.py`; verify it's wired into all public endpoints.
+*Last updated: 2026-05-21 — Federico Carlos Polak / Polkorp Global Ventures*
+*Next session: read this file, check `git log --oneline -10`, run `make benchmark`*
