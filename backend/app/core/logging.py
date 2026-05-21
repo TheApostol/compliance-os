@@ -16,7 +16,8 @@ def configure_logging() -> None:
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.stdlib.add_logger_name,
+        # add_logger_name only works with stdlib loggers, not PrintLogger
+        # conditionally add it only when using stdlib logger factory
     ]
 
     if settings.is_production:

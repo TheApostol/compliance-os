@@ -139,7 +139,7 @@ async def test_check_deadlines_returns_summary():
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
     with patch(
-        "app.modules.monitoring.deadline_checker.AsyncSessionLocal",
+        "app.db.base.AsyncSessionLocal",
         return_value=mock_ctx,
     ):
         result = await check_deadlines(tenant_id="polkorp")

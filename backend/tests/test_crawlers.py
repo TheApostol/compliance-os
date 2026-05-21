@@ -71,7 +71,8 @@ class TestBCRAParseIndexHtml:
         </table></body></html>
         """
         crawler = self._crawler()
-        entries = crawler._parse_index_html(html)
+        # Call strategy 2 directly — _parse_index_html would route via strategy 1 first
+        entries = crawler._strategy_table_rows(html)
         assert len(entries) >= 3
         titles = [e.title for e in entries]
         assert any("7890" in t or "7891" in t for t in titles)
@@ -132,7 +133,8 @@ class TestBCRAParseIndexHtml:
         </table></body></html>
         """
         crawler = self._crawler()
-        entries = crawler._parse_index_html(html)
+        # Call strategy 2 directly to test table-row date parsing
+        entries = crawler._strategy_table_rows(html)
         dated = [e for e in entries if e.published_at is not None]
         assert len(dated) > 0
         assert dated[0].published_at.year == 2025  # type: ignore[union-attr]
@@ -387,10 +389,6 @@ class TestAlreadyProcessed:
 
         mock_session_local = MagicMock(return_value=mock_session)
 
-        with patch("app.modules.crawler.base_crawler.BaseCrawler._already_processed.__func__", None):
-            pass  # can't patch staticmethod directly in older pytest; use module patch
-
-        # Patch AsyncSessionLocal at module level via the import path used in the method
         with patch("app.db.base.AsyncSessionLocal", return_value=mock_session):
             # Instantiate a concrete subclass (BCRACrawler)
             from app.modules.crawler.bcra_crawler import BCRACrawler

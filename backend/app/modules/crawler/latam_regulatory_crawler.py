@@ -159,16 +159,18 @@ class LatamRegulatoryCrawler:
         return results
 
     async def _crawl_bcra(self, tenant_id: str, **kwargs) -> List[CrawlResult]:
+        # BCRA API v1 — cheques/entidades and estadisticascambiarias are the live v1 endpoints
+        # (v2.0 principalesvariables deprecated as of 2026)
         base = "https://api.bcra.gob.ar"
         endpoints = [
-            ("/principalesvariables/v1", "Principales Variables", "BCRA_PRINCIPALES_VARIABLES"),
-            ("/estadisticasmonetarias/v4", "Monetary Statistics v4", "BCRA_ESTADISTICAS_MONETARIAS_V4"),
+            ("/cheques/v1.0/entidades", "Entidades Financieras", "BCRA_ENTIDADES"),
+            ("/estadisticascambiarias/v1.0/Cotizaciones", "Cotizaciones Cambiarias", "BCRA_COTIZACIONES"),
         ]
         results: List[CrawlResult] = []
         for path, title, code in endpoints:
             url = f"{base}{path}"
             try:
-                data = await self._get_json(url)
+                data = await self._get_json(url, headers={"Accept": "application/json"})
                 obligations = await self._parse_with_ai(regulator="BCRA", title=title, data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCRA - {title}", country="AR", regulator="BCRA", code=code, title=title, raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
@@ -176,11 +178,13 @@ class LatamRegulatoryCrawler:
         return results
 
     async def _crawl_bacen(self, tenant_id: str, series_codes: Optional[List[str]] = None, **kwargs) -> List[CrawlResult]:
-        base = "https://api.bcb.gov.br/dados/serie/bcdata.sgs"
-        series_codes = series_codes or ["1", "433", "4390"]
+        # BACEN SGS API — dot notation required: bcdata.sgs.{code}
+        # Active series: 433=IPCA, 12=SELIC overnight, 3698=USD/BRL
+        base = "https://api.bcb.gov.br/dados/serie"
+        series_codes = series_codes or ["433", "12", "3698"]
         results: List[CrawlResult] = []
         for code in series_codes:
-            url = f"{base}/{code}/dados?formato=json"
+            url = f"{base}/bcdata.sgs.{code}/dados?formato=json"
             try:
                 data = await self._get_json(url)
                 sample = data[:100] if isinstance(data, list) else data

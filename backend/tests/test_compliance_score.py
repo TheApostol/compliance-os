@@ -99,7 +99,7 @@ async def test_score_entity_not_found():
     session = _build_session_mock([None])  # entity not found
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is None
@@ -117,7 +117,7 @@ async def test_score_no_vertex():
     ])
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is not None
@@ -143,7 +143,7 @@ async def test_score_no_obligations():
     ])
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is not None
@@ -193,7 +193,7 @@ async def test_score_all_satisfied():
     session = _build_session_mock(query_map)
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is not None
@@ -228,7 +228,7 @@ async def test_score_none_satisfied():
     session = _build_session_mock(query_map)
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is not None
@@ -281,7 +281,7 @@ async def test_score_partial():
     session = _build_session_mock(query_map)
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is not None
@@ -320,7 +320,7 @@ async def test_breakdown_has_control_label():
     session = _build_session_mock(query_map)
 
     with pytest.MonkeyPatch().context() as mp:
-        mp.setattr("app.services.compliance_score.AsyncSessionLocal", lambda: session)
+        mp.setattr("app.db.base.AsyncSessionLocal", lambda: session)
         result = await compute_score(entity_id=entity_id, tenant_id="t1")
 
     assert result is not None

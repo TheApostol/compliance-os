@@ -78,7 +78,7 @@ async def test_validate_key_active():
 
     mock_session_local = MagicMock(return_value=mock_session)
 
-    with patch("app.services.api_key_service.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         from app.services.api_key_service import validate_key
 
         result = await validate_key(full_key)
@@ -118,7 +118,7 @@ async def test_validate_key_expired():
 
     mock_session_local = MagicMock(return_value=mock_session)
 
-    with patch("app.services.api_key_service.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         from app.services.api_key_service import validate_key
 
         result = await validate_key(full_key)
@@ -147,7 +147,7 @@ async def test_validate_key_inactive():
 
     mock_session_local = MagicMock(return_value=mock_session)
 
-    with patch("app.services.api_key_service.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         from app.services.api_key_service import validate_key
 
         result = await validate_key(full_key)
@@ -173,7 +173,7 @@ async def test_validate_key_not_found():
 
     mock_session_local = MagicMock(return_value=mock_session)
 
-    with patch("app.services.api_key_service.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         from app.services.api_key_service import validate_key
 
         result = await validate_key("csk_totally_unknown_key")
@@ -232,7 +232,7 @@ def test_create_key_endpoint():
     app.router.lifespan_context = _noop_lifespan
     app.dependency_overrides[get_current_user] = _auth
 
-    with patch("app.api.v1.router.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         with TestClient(app, raise_server_exceptions=True) as client:
             response = client.post(
                 "/api/v1/api-keys",
@@ -282,11 +282,11 @@ def test_delete_key_wrong_tenant():
     app.router.lifespan_context = _noop_lifespan
     app.dependency_overrides[get_current_user] = _auth
 
-    with patch("app.api.v1.router.AsyncSessionLocal", mock_session_local):
+    with patch("app.db.base.AsyncSessionLocal", mock_session_local):
         with TestClient(app, raise_server_exceptions=True) as client:
             response = client.delete("/api/v1/api-keys/other-tenant-key-uuid")
 
     app.dependency_overrides.pop(get_current_user, None)
 
     assert response.status_code == 404, response.text
-    assert "not found" in response.json()["detail"].lower()
+    assert "not found" in response.json().get("error", response.json().get("detail", "")).lower()
