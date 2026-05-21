@@ -44,7 +44,7 @@ class ComplianceCopilot:
         try:
             from app.services.rag import get_rag
             rag = get_rag()
-            rag_context = await rag.context_for_query(question, top_k=4)
+            rag_context = await rag.context_for_query(question, tenant_id=tenant_id, top_k=4)
             rag_chunks = rag_context.count("[") if rag_context else 0
         except Exception:
             pass

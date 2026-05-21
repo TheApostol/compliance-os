@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     default_tenant_id: str = "polkorp"
     default_tenant_name: str = "Polkorp Global Ventures"
 
+    # ── Auth (external — optional) ─────────────────────────
+    auth_mode: str = "local"          # "local" | "auth0" | "clerk"
+    auth0_domain: str = ""            # e.g. "your-tenant.auth0.com"
+    auth0_audience: str = ""          # e.g. "https://api.complianceos.io"
+    clerk_jwks_url: str = ""          # e.g. "https://clerk.your-app.com/.well-known/jwks.json"
+
+    # ── Crawler ────────────────────────────────────────────
+    crawler_enabled: bool = True
+    crawler_bcra_url: str = "https://www.bcra.gob.ar/SistemasFinancieros/sf_comunicaciones.asp"
+    crawler_uif_url: str = "https://www.uif.gob.ar/uif/index.php/es/normativa"
+
     # ── Convenience flags ──────────────────────────────────
     @property
     def is_production(self) -> bool:

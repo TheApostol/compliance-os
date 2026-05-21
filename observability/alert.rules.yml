@@ -1,0 +1,34 @@
+groups:
+  - name: complianceos
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High 5xx error rate ({{ $value | humanizePercentage }})"
+
+      - alert: SlowAIResponses
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{handler=~".*(regulatory|copilot|kyc|monitoring).*"}[5m])) > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI endpoint p95 latency above 60s"
+
+      - alert: CrawlerNotRunning
+        expr: absent(up{job="complianceos_backend"}) == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend not reachable for 10 minutes"
+
+      - alert: HighInProgressRequests
+        expr: http_requests_inprogress > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 50 requests in progress"

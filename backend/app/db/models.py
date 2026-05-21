@@ -12,13 +12,44 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, DateTime, Integer, Boolean,
-    ForeignKey, Enum as SAEnum, Index
+    Column, String, Text, DateTime, Integer, Boolean,
+    ForeignKey, Enum as SAEnum, Index, UniqueConstraint, func
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+
+
+# ═══════════════════════════════════════════════════════════════════
+# COMPLIANCE ENTITIES (graph entity registry)
+# ═══════════════════════════════════════════════════════════════════
+
+class EntityType(str, enum.Enum):
+    COMPANY    = "company"
+    INDIVIDUAL = "individual"
+    SECTOR     = "sector"   # virtual entity representing a regulated sector
+
+
+class ComplianceEntity(Base):
+    """
+    Companies, individuals, or virtual sector nodes that are subject to
+    regulatory obligations.  APPLIES_TO edges in the compliance graph link
+    obligation vertices to entity vertices.
+    """
+    __tablename__ = "compliance_entities"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id   = Column(String(64), nullable=False, index=True)
+    name        = Column(String(255), nullable=False)
+    entity_type = Column(SAEnum(EntityType), nullable=False)
+    sectors     = Column(JSONB, default=list)   # ["PSP", "bank", "crypto"]
+    properties  = Column(JSONB, default=dict)
+    created_at  = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_entity_tenant_type", "tenant_id", "entity_type"),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -28,15 +59,13 @@ from app.db.base import Base
 class Tenant(Base):
     __tablename__ = "tenants"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    slug = Column(String(64), unique=True, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    sector = Column(String(64))
-    jurisdictions = Column(JSONB, default=list)
-    data_residency_policy = Column(JSONB, default=dict)
-    config = Column(JSONB, default=dict)
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False, unique=True)  # used as tenant_id in JWT
+    data_residency_policy = Column(String, default="global")  # global | latam | ar | br
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    settings = Column(JSONB, default=dict)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -65,6 +94,7 @@ class Regulation(Base):
     __tablename__ = "regulations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=True, index=True)  # None = shared/global regulation
     country = Column(String(2), nullable=False, index=True)
     regulator = Column(String(64), nullable=False, index=True)
     code = Column(String(128), nullable=False)
@@ -74,7 +104,7 @@ class Regulation(Base):
     effective_from = Column(DateTime(timezone=True))
     source_url = Column(String(1024))
     source_hash = Column(String(64))
-    full_text = Column(String)
+    full_text = Column(Text, nullable=True)
     embedding_status = Column(String(32), default="pending")
     metadata_json = Column("metadata", JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -216,4 +246,165 @@ class EvidenceDocument(Base):
 
     __table_args__ = (
         Index("ix_evidence_tenant_created", "tenant_id", "created_at"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# COMPLIANCE GRAPH
+# ═══════════════════════════════════════════════════════════════════
+
+class GraphVertex(Base):
+    """
+    Graph node. vertex_type: regulation | obligation | entity | control | regulator
+    entity_id references the PK of the source table (regulation.id, obligation.id, etc.)
+    """
+    __tablename__ = "graph_vertices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vertex_type = Column(String(32), nullable=False, index=True)
+    entity_id = Column(String(64), nullable=False, index=True)    # FK by convention only
+    label = Column(String(255), nullable=False)
+    properties = Column(JSONB, default=dict)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_vertex_type_entity", "vertex_type", "entity_id"),
+    )
+
+
+class GraphEdge(Base):
+    """
+    Directed graph edge. edge_type: REQUIRES | APPLIES_TO | SATISFIES | ISSUED_BY | CROSS_REFERENCES
+    from_vertex_id → to_vertex_id
+    """
+    __tablename__ = "graph_edges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    from_vertex_id = Column(UUID(as_uuid=True), ForeignKey("graph_vertices.id"), nullable=False)
+    to_vertex_id = Column(UUID(as_uuid=True), ForeignKey("graph_vertices.id"), nullable=False)
+    edge_type = Column(String(64), nullable=False, index=True)
+    properties = Column(JSONB, default=dict)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    from_vertex = relationship("GraphVertex", foreign_keys=[from_vertex_id])
+    to_vertex = relationship("GraphVertex", foreign_keys=[to_vertex_id])
+
+    __table_args__ = (
+        Index("ix_edge_from", "from_vertex_id"),
+        Index("ix_edge_to", "to_vertex_id"),
+        Index("ix_edge_type_from", "edge_type", "from_vertex_id"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# WEBHOOKS
+# ═══════════════════════════════════════════════════════════════════
+
+class WebhookEvent(str, enum.Enum):
+    CRAWL_COMPLETE     = "crawl.complete"
+    DEADLINE_ALERT     = "deadline.alert"
+    REGULATION_PARSED  = "regulation.parsed"
+
+
+class WebhookConfig(Base):
+    __tablename__ = "webhook_configs"
+
+    id                = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id         = Column(String, nullable=False, index=True)
+    name              = Column(String, nullable=False)
+    url               = Column(String, nullable=False)
+    secret            = Column(String, nullable=True)   # HMAC-SHA256 signing secret
+    events            = Column(JSONB, default=list)     # list of WebhookEvent values to subscribe to
+    is_active         = Column(Boolean, default=True)
+    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    last_status_code  = Column(Integer, nullable=True)
+    created_at        = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_webhooks_tenant", "tenant_id"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# API KEYS
+# ═══════════════════════════════════════════════════════════════════
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)              # human label e.g. "CI pipeline"
+    key_prefix = Column(String(8), nullable=False)     # first 8 chars, shown in list
+    hashed_key = Column(String, nullable=False, unique=True)  # SHA-256 hex of full key
+    scopes = Column(JSONB, default=list)               # e.g. ["read", "write", "crawl"]
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_api_keys_tenant", "tenant_id"),
+        Index("ix_api_keys_prefix", "key_prefix"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTH — USERS
+# ═══════════════════════════════════════════════════════════════════
+
+class UserRole(str, enum.Enum):
+    ADMIN   = "admin"
+    ANALYST = "analyst"
+    VIEWER  = "viewer"
+
+
+class User(Base):
+    """Application user. JWT claims carry tenant_id + role at login."""
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)  # tenant slug
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(SAEnum(UserRole), default=UserRole.ANALYST, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DEADLINE ALERTS
+# ═══════════════════════════════════════════════════════════════════
+
+class AlertSeverity(str, enum.Enum):
+    LOW      = "low"
+    MEDIUM   = "medium"
+    HIGH     = "high"
+    CRITICAL = "critical"
+
+
+class DeadlineAlert(Base):
+    """
+    Tracks approaching obligation deadlines.
+    Created/updated daily by the deadline checker background job.
+    """
+    __tablename__ = "deadline_alerts"
+
+    id              = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id       = Column(String, nullable=False, index=True)
+    obligation_id   = Column(String, nullable=False)   # FK-style ref, no hard FK for simplicity
+    regulation_code = Column(String, nullable=False)
+    regulator       = Column(String, nullable=False)
+    country         = Column(String, nullable=False)
+    title           = Column(String, nullable=False)
+    deadline        = Column(DateTime(timezone=True), nullable=False)
+    days_remaining  = Column(Integer, nullable=False)
+    severity        = Column(SAEnum(AlertSeverity), default=AlertSeverity.MEDIUM)
+    is_acknowledged = Column(Boolean, default=False)
+    acknowledged_by = Column(String, nullable=True)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_alerts_tenant_ack", "tenant_id", "is_acknowledged"),
+        UniqueConstraint("tenant_id", "obligation_id", name="uq_alert_tenant_obligation"),
     )

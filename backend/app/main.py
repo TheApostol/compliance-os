@@ -7,13 +7,21 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
+from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
 from app.db.base import Base, engine
+from app.middleware.rate_limit import limiter
+from app.middleware.metrics import setup_metrics
 
+configure_logging()
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -46,6 +54,14 @@ async def lifespan(app: FastAPI):
     get_orchestrator().set_audit_callback(_audit_callback)
     logger.info("Audit log wired to AI orchestrator")
 
+    # Ensure Qdrant RAG collection exists (idempotent)
+    try:
+        from app.services.rag import get_rag
+        await get_rag().ensure_collection()
+        logger.info("Qdrant RAG collection ready")
+    except Exception as e:
+        logger.warning("Qdrant not available at startup: %s", e)
+
     logger.info(f"Starting {settings.app_name} ({settings.app_env})")
     logger.info(f"NVIDIA configured: {settings.has_nvidia}")
     if not settings.has_nvidia:
@@ -53,8 +69,26 @@ async def lifespan(app: FastAPI):
             "NVIDIA_API_KEY not set — AI endpoints will return 'missing key' errors. "
             "Get a key at https://build.nvidia.com and add it to .env"
         )
+
+    # Start regulatory crawler scheduler (BCRA every 6h, UIF every 12h)
+    _scheduler = None
+    if settings.crawler_enabled:
+        from app.modules.crawler.scheduler import start_scheduler
+        _scheduler = start_scheduler()
+
     yield
+
+    if _scheduler:
+        _scheduler.shutdown()
     logger.info("Shutting down")
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(
+        status_code=429,
+        content={"error": "rate limit exceeded", "request_id": request_id},
+    )
 
 
 app = FastAPI(
@@ -66,6 +100,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,6 +113,13 @@ app.add_middleware(
     expose_headers=["X-Request-ID", "X-Audit-ID"],
 )
 
+from app.middleware.request_id import RequestIDMiddleware  # noqa: E402
+app.add_middleware(RequestIDMiddleware)
+
+app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
+
+setup_metrics(app)
 
 app.include_router(v1_router)
 

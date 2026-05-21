@@ -55,3 +55,7 @@ output_*/
 
 # Docker
 docker-compose.override.yml
+
+# Claude Code internals
+.claude/
+frontend/tsconfig.tsbuildinfo

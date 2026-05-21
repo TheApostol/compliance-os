@@ -6,10 +6,14 @@ REST endpoints organized by module. Multi-tenant aware.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
+
+from app.middleware.rate_limit import limiter
 
 from app.modules.regulatory.engine import RegulatoryIntelligence
 from app.modules.copilot.copilot import ComplianceCopilot
@@ -18,22 +22,29 @@ from app.modules.monitoring.engine import MonitoringEngine
 from app.modules.governance.engine import AIGovernance
 from app.modules.evidence.engine import EvidenceEngine
 from app.services.ai_orchestrator import MODELS, ROUTING
+from app.core.auth import (
+    CurrentUser, get_current_user, get_current_user_or_key, require_admin,
+    create_access_token, create_refresh_token, decode_refresh_token,
+    hash_password, verify_password,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+)
 from fastapi import UploadFile, File, Query
+from fastapi.responses import StreamingResponse
 
 
 router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Tenant resolver (header-based for now; JWT in production)
+# Tenant / user resolver — JWT-first, X-Tenant-Id dev fallback
 # ═══════════════════════════════════════════════════════════════════
 
-async def get_tenant_id(x_tenant_id: str = Header(default="polkorp")) -> str:
-    return x_tenant_id
+async def get_tenant_id(user: CurrentUser = Depends(get_current_user)) -> str:
+    return user.tenant_id
 
 
-async def get_user_id(x_user_id: str = Header(default=None)) -> str | None:
-    return x_user_id
+async def get_user_id(user: CurrentUser = Depends(get_current_user)) -> str | None:
+    return user.user_id
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -43,6 +54,54 @@ async def get_user_id(x_user_id: str = Header(default=None)) -> str | None:
 @router.get("/health")
 async def health():
     return {"status": "ok", "version": "0.2.0"}
+
+
+@router.get("/health/detailed")
+async def health_detailed():
+    """
+    Deep health check: verifies connectivity to Postgres, Qdrant, and Redis.
+    Returns per-service status. Never raises — always returns 200 with statuses.
+    Safe to use as a liveness + readiness probe.
+    """
+    import time
+    checks = {}
+
+    # Postgres
+    t = time.perf_counter()
+    try:
+        from app.db.base import AsyncSessionLocal
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        checks["postgres"] = {"status": "ok", "latency_ms": round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:
+        checks["postgres"] = {"status": "error", "error": str(e)[:100]}
+
+    # Qdrant
+    t = time.perf_counter()
+    try:
+        from qdrant_client import AsyncQdrantClient
+        from app.core.config import get_settings
+        client = AsyncQdrantClient(url=get_settings().qdrant_url)
+        await client.get_collections()
+        checks["qdrant"] = {"status": "ok", "latency_ms": round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:
+        checks["qdrant"] = {"status": "error", "error": str(e)[:100]}
+
+    # Redis
+    t = time.perf_counter()
+    try:
+        import redis.asyncio as aioredis
+        from app.core.config import get_settings
+        r = aioredis.from_url(get_settings().redis_url, socket_connect_timeout=3)
+        await r.ping()
+        await r.aclose()
+        checks["redis"] = {"status": "ok", "latency_ms": round((time.perf_counter()-t)*1000,1)}
+    except Exception as e:
+        checks["redis"] = {"status": "error", "error": str(e)[:100]}
+
+    overall = "ok" if all(v.get("status") == "ok" for v in checks.values()) else "degraded"
+    return {"status": overall, "version": "0.2.0", "services": checks}
 
 
 @router.get("/meta/models")
@@ -84,7 +143,9 @@ class MapCrossBorderRequest(BaseModel):
 
 
 @router.post("/regulatory/parse")
+@limiter.limit("30/minute")
 async def parse_regulation(
+    request: Request,
     req: ParseRegulationRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
@@ -129,7 +190,9 @@ class ExpansionAnalysisRequest(BaseModel):
 
 
 @router.post("/copilot/ask")
+@limiter.limit("30/minute")
 async def copilot_ask(
+    request: Request,
     req: CopilotAskRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
@@ -171,7 +234,9 @@ class SanctionsScreenRequest(BaseModel):
 
 
 @router.post("/kyc/screen")
+@limiter.limit("20/minute")
 async def kyc_screen(
+    request: Request,
     req: KYCScreenRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
@@ -210,7 +275,9 @@ class PolicyDriftRequest(BaseModel):
 
 
 @router.post("/monitoring/transactions")
+@limiter.limit("20/minute")
 async def monitor_transactions(
+    request: Request,
     req: TransactionAnalysisRequest,
     tenant_id: str = Depends(get_tenant_id),
 ):
@@ -325,3 +392,1197 @@ async def get_evidence_document(
     """Retrieve a specific evidence document with full structured data."""
     engine = EvidenceEngine()
     return await engine.get_document(document_id=document_id, tenant_id=tenant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# DEADLINE ALERTS
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/alerts")
+async def list_alerts(
+    acknowledged: bool = False,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """List deadline alerts for the current tenant, filtered by acknowledgement status."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import DeadlineAlert
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as session:
+        stmt = select(DeadlineAlert).where(
+            DeadlineAlert.tenant_id == current_user.tenant_id,
+            DeadlineAlert.is_acknowledged == acknowledged,
+        ).order_by(DeadlineAlert.days_remaining)
+        alerts = (await session.execute(stmt)).scalars().all()
+    return {"alerts": [
+        {
+            "id": a.id,
+            "obligation_id": a.obligation_id,
+            "regulation_code": a.regulation_code,
+            "regulator": a.regulator,
+            "country": a.country,
+            "title": a.title,
+            "deadline": a.deadline.isoformat() if a.deadline else None,
+            "days_remaining": a.days_remaining,
+            "severity": a.severity,
+            "is_acknowledged": a.is_acknowledged,
+        }
+        for a in alerts
+    ], "count": len(alerts)}
+
+
+@router.post("/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(
+    alert_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Acknowledge a deadline alert, recording who acknowledged it."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import DeadlineAlert
+    from sqlalchemy import select, update
+    async with AsyncSessionLocal() as session:
+        alert = (await session.execute(
+            select(DeadlineAlert).where(
+                DeadlineAlert.id == alert_id,
+                DeadlineAlert.tenant_id == current_user.tenant_id,
+            )
+        )).scalar_one_or_none()
+        if not alert:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        await session.execute(
+            update(DeadlineAlert).where(DeadlineAlert.id == alert_id)
+            .values(is_acknowledged=True, acknowledged_by=current_user.user_id)
+        )
+        await session.commit()
+    return {"acknowledged": True, "alert_id": alert_id}
+
+
+@router.post("/alerts/run-check")
+async def run_deadline_check_endpoint(
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Manually trigger the deadline checker job (admin only)."""
+    from app.modules.crawler.scheduler import run_deadline_check
+    result = await run_deadline_check(tenant_id=admin.tenant_id)
+    return {"triggered": True, **result}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUTH
+# ═══════════════════════════════════════════════════════════════════
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str = Field(..., min_length=8)
+    role: str = "analyst"
+
+
+@router.post("/auth/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Exchange email + password for a JWT access token."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import User
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(User).where(User.email == form_data.username, User.is_active == True)
+        user = (await session.execute(stmt)).scalar_one_or_none()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = create_access_token(
+        user_id=str(user.id),
+        tenant_id=user.tenant_id,
+        role=user.role.value,
+    )
+    refresh = create_refresh_token(
+        user_id=str(user.id),
+        tenant_id=user.tenant_id,
+        role=user.role.value,
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "refresh_token": refresh,
+    }
+
+
+@router.post("/auth/register", status_code=201)
+async def register_user(
+    req: RegisterRequest,
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Register a new user (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import User, UserRole
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        existing = (await session.execute(select(User).where(User.email == req.email))).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        try:
+            role = UserRole(req.role)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"Invalid role: {req.role}")
+
+        new_user = User(
+            tenant_id=admin.tenant_id,
+            email=req.email,
+            hashed_password=hash_password(req.password),
+            role=role,
+        )
+        session.add(new_user)
+        await session.commit()
+        return {"success": True, "user_id": str(new_user.id), "email": new_user.email, "role": role.value}
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/auth/refresh")
+async def refresh_access_token(req: RefreshRequest):
+    """Exchange a valid refresh token for a new access token."""
+    claims = decode_refresh_token(req.refresh_token)
+    token = create_access_token(
+        user_id=claims["sub"],
+        tenant_id=claims["tenant_id"],
+        role=claims.get("role", "analyst"),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# RAG
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/rag/status")
+async def rag_status():
+    """Qdrant collection info and document count."""
+    from app.services.rag import get_rag, COLLECTION
+    try:
+        client = get_rag()._get_qdrant()
+        info = await client.get_collection(COLLECTION)
+        return {
+            "collection": COLLECTION,
+            "vector_count": info.vectors_count,
+            "indexed_vectors": info.indexed_vectors_count,
+            "status": info.status,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@router.post("/rag/reindex")
+async def rag_reindex(
+    tenant_id: str = Depends(get_tenant_id),
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Re-embed all regulations from DB into Qdrant (admin only)."""
+    from app.services.rag import get_rag
+    return await get_rag().index_all_regulations(tenant_id=tenant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CRAWLER
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/crawler/events")
+async def crawler_events(request: Request, current_user: CurrentUser = Depends(get_current_user)):
+    """SSE stream for crawler completion events scoped to the current tenant."""
+    from sse_starlette.sse import EventSourceResponse
+    from app.services.event_bus import subscribe
+
+    channel = f"crawler:{current_user.tenant_id}"
+
+    async def generator():
+        # Send an initial connected event
+        yield {"event": "connected", "data": '{"status": "listening"}'}
+        async for data in subscribe(channel):
+            if await request.is_disconnected():
+                break
+            yield {"event": "crawl_complete", "data": data}
+
+    return EventSourceResponse(generator())
+
+
+@router.get("/crawler/status")
+async def crawler_status():
+    """Crawler schedule and last-run stats."""
+    from app.core.config import get_settings
+    s = get_settings()
+    return {
+        "enabled": s.crawler_enabled,
+        "bcra_url": s.crawler_bcra_url,
+        "uif_url": s.crawler_uif_url,
+        "schedule": {
+            "bcra_interval_hours": 6,
+            "uif_interval_hours": 12,
+            "bacen_interval_hours": 8,
+            "cmf_interval_hours": 12,
+            "sfc_interval_hours": 12,
+            "cnbv_interval_hours": 12,
+            "sbs_pe_interval_hours": 12,
+            "sbs_ec_interval_hours": 12,
+            "bcu_interval_hours": 12,
+        },
+        "jobs": {
+            "bcra": {"interval_hours": 6, "country": "AR"},
+            "uif": {"interval_hours": 12, "country": "AR"},
+            "bacen": {"interval_hours": 8, "country": "BR"},
+            "cmf": {"interval_hours": 12, "country": "CL"},
+            "sfc": {"interval_hours": 12, "country": "CO"},
+            "cnbv": {"interval_hours": 12, "country": "MX"},
+            "sbs_pe": {"interval_hours": 12, "country": "PE"},
+            "sbs_ec": {"interval_hours": 12, "country": "EC"},
+            "bcu": {"interval_hours": 12, "country": "UY"},
+        },
+    }
+
+
+@router.post("/crawler/run-now")
+@limiter.limit("5/minute")
+async def crawler_run_now(
+    request: Request,
+    regulator: str | None = Query(default=None, description="bcra | uif | all"),
+    tenant_id: str = Depends(get_tenant_id),
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Trigger an immediate crawler run (admin only)."""
+    from app.modules.crawler.scheduler import (
+        run_bcra, run_uif, run_bacen, run_cmf, run_sfc, run_cnbv,
+        run_sbs_pe, run_sbs_ec, run_bcu, run_all,
+    )
+    reg = (regulator or "all").lower()
+    if reg == "bcra":
+        return await run_bcra(tenant_id=tenant_id)
+    elif reg == "uif":
+        return await run_uif(tenant_id=tenant_id)
+    elif reg == "bacen":
+        return await run_bacen(tenant_id=tenant_id)
+    elif reg == "cmf":
+        return await run_cmf(tenant_id=tenant_id)
+    elif reg == "sfc":
+        return await run_sfc(tenant_id=tenant_id)
+    elif reg == "cnbv":
+        return await run_cnbv(tenant_id=tenant_id)
+    elif reg == "sbs_pe":
+        return await run_sbs_pe(tenant_id=tenant_id)
+    elif reg == "sbs_ec":
+        return await run_sbs_ec(tenant_id=tenant_id)
+    elif reg == "bcu":
+        return await run_bcu(tenant_id=tenant_id)
+    else:
+        return await run_all(tenant_id=tenant_id)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# COMPLIANCE GRAPH
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/graph/stats")
+async def graph_stats():
+    """High-level compliance graph statistics (vertex + edge counts by type)."""
+    from app.services.graph_service import get_graph
+    return await get_graph().graph_stats()
+
+
+@router.get("/graph/regulation/{regulation_id}")
+async def graph_regulation_subgraph(regulation_id: str):
+    """Return the compliance subgraph rooted at a regulation (BFS depth 3)."""
+    from app.services.graph_service import get_graph
+    return await get_graph().get_regulation_subgraph(regulation_id=regulation_id)
+
+
+@router.get("/graph/entity/{entity_id}/obligations")
+async def graph_entity_obligations(entity_id: str):
+    """Return all obligations that apply to a given entity in the graph."""
+    from app.services.graph_service import get_graph
+    return await get_graph().get_obligations_for_entity(entity_id=entity_id)
+
+
+class RegisterEntityRequest(BaseModel):
+    name: str = Field(..., examples=["Acme PSP S.A."])
+    entity_type: str = Field(..., examples=["company"])
+    sectors: list[str] = Field(default_factory=list, examples=[["PSP", "bank"]])
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/graph/entities", status_code=201)
+async def register_entity(
+    req: RegisterEntityRequest,
+    tenant_id: str = Depends(get_tenant_id),
+    _user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Register a company or individual as a compliance entity and auto-link it
+    to all obligations that apply to its declared sectors via APPLIES_TO edges.
+    """
+    from app.services.graph_service import get_graph
+    return await get_graph().register_entity(
+        tenant_id=tenant_id,
+        name=req.name,
+        entity_type=req.entity_type,
+        sectors=req.sectors,
+        properties=req.properties,
+    )
+
+
+@router.get("/graph/entities")
+async def list_entities(
+    tenant_id: str = Depends(get_tenant_id),
+    _user: CurrentUser = Depends(get_current_user),
+):
+    """List all compliance entities registered for this tenant."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import ComplianceEntity
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(ComplianceEntity).where(ComplianceEntity.tenant_id == tenant_id)
+        entities = (await session.execute(stmt)).scalars().all()
+
+    return [
+        {
+            "entity_id": str(e.id),
+            "name": e.name,
+            "entity_type": e.entity_type.value,
+            "sectors": e.sectors or [],
+        }
+        for e in entities
+    ]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TENANT MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════
+
+class TenantCreate(BaseModel):
+    name: str
+    slug: str
+    data_residency_policy: str = "global"
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = None
+    data_residency_policy: str | None = None
+    is_active: bool | None = None
+
+
+@router.post("/tenants", status_code=201)
+async def create_tenant(
+    req: TenantCreate,
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Create a new tenant (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        existing = (
+            await session.execute(select(Tenant).where(Tenant.slug == req.slug))
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=409, detail="Slug already exists")
+
+        tenant = Tenant(
+            name=req.name,
+            slug=req.slug,
+            data_residency_policy=req.data_residency_policy,
+        )
+        session.add(tenant)
+        await session.commit()
+        await session.refresh(tenant)
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "data_residency_policy": tenant.data_residency_policy,
+            "is_active": tenant.is_active,
+            "created_at": tenant.created_at,
+        }
+
+
+@router.get("/tenants")
+async def list_tenants(
+    admin: CurrentUser = Depends(require_admin),
+):
+    """List all tenants (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        tenants = (await session.execute(select(Tenant))).scalars().all()
+
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "slug": t.slug,
+            "data_residency_policy": t.data_residency_policy,
+            "is_active": t.is_active,
+            "created_at": t.created_at,
+        }
+        for t in tenants
+    ]
+
+
+@router.get("/tenants/{slug}")
+async def get_tenant(
+    slug: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Get tenant by slug.
+    Non-admin users may only retrieve their own tenant.
+    """
+    if not current_user.is_admin and current_user.tenant_id != slug:
+        raise HTTPException(status_code=403, detail="Access denied: not your tenant")
+
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        tenant = (
+            await session.execute(select(Tenant).where(Tenant.slug == slug))
+        ).scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "slug": tenant.slug,
+        "data_residency_policy": tenant.data_residency_policy,
+        "is_active": tenant.is_active,
+        "created_at": tenant.created_at,
+    }
+
+
+@router.patch("/tenants/{slug}")
+async def update_tenant(
+    slug: str,
+    req: TenantUpdate,
+    admin: CurrentUser = Depends(require_admin),
+):
+    """Partial update of a tenant (admin only)."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Tenant
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        tenant = (
+            await session.execute(select(Tenant).where(Tenant.slug == slug))
+        ).scalar_one_or_none()
+
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant not found")
+
+        if req.name is not None:
+            tenant.name = req.name
+        if req.data_residency_policy is not None:
+            tenant.data_residency_policy = req.data_residency_policy
+        if req.is_active is not None:
+            tenant.is_active = req.is_active
+
+        await session.commit()
+        await session.refresh(tenant)
+        return {
+            "id": tenant.id,
+            "name": tenant.name,
+            "slug": tenant.slug,
+            "data_residency_policy": tenant.data_residency_policy,
+            "is_active": tenant.is_active,
+            "created_at": tenant.created_at,
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# API KEY MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════
+
+class APIKeyCreateRequest(BaseModel):
+    name: str = Field(..., examples=["CI pipeline"])
+    scopes: list[str] = Field(default=["read"], examples=[["read", "write"]])
+    expires_days: int | None = Field(default=None, ge=1, le=3650, examples=[365])
+
+
+@router.post("/api-keys", status_code=201)
+async def create_api_key(
+    req: APIKeyCreateRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Create a new API key scoped to the caller's tenant.
+
+    The full plaintext key is returned exactly ONCE. Store it securely —
+    only the prefix and hash are persisted in the database.
+    Requires JWT auth (not API key auth) to prevent the key-bootstrap problem.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import APIKey
+    from app.services.api_key_service import generate_key
+
+    full_key, prefix, hashed = generate_key()
+
+    expires_at = None
+    if req.expires_days is not None:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=req.expires_days)
+
+    async with AsyncSessionLocal() as session:
+        api_key = APIKey(
+            tenant_id=current_user.tenant_id,
+            name=req.name,
+            key_prefix=prefix,
+            hashed_key=hashed,
+            scopes=req.scopes,
+            expires_at=expires_at,
+        )
+        session.add(api_key)
+        await session.commit()
+        await session.refresh(api_key)
+
+    return {
+        "id": api_key.id,
+        "key": full_key,
+        "prefix": prefix,
+        "name": api_key.name,
+        "scopes": api_key.scopes,
+        "expires_at": api_key.expires_at.isoformat() if api_key.expires_at else None,
+        "created_at": api_key.created_at.isoformat() if api_key.created_at else None,
+        "warning": "Store this key securely. It will not be shown again.",
+    }
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    List all API keys for the caller's tenant.
+
+    Never returns the full plaintext key or its hash — only the prefix,
+    metadata, and last-used timestamp.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import APIKey
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(APIKey).where(APIKey.tenant_id == current_user.tenant_id)
+        keys = (await session.execute(stmt)).scalars().all()
+
+    return [
+        {
+            "id": k.id,
+            "name": k.name,
+            "prefix": k.key_prefix,
+            "scopes": k.scopes or [],
+            "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+            "expires_at": k.expires_at.isoformat() if k.expires_at else None,
+            "is_active": k.is_active,
+            "created_at": k.created_at.isoformat() if k.created_at else None,
+        }
+        for k in keys
+    ]
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(
+    key_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Revoke an API key by setting is_active = False.
+
+    Returns 404 if the key does not exist or belongs to a different tenant,
+    preventing tenants from discovering or revoking each other's keys.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import APIKey
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = select(APIKey).where(
+            APIKey.id == key_id,
+            APIKey.tenant_id == current_user.tenant_id,
+        )
+        key_row = (await session.execute(stmt)).scalar_one_or_none()
+
+        if not key_row:
+            raise HTTPException(status_code=404, detail="API key not found")
+
+        key_row.is_active = False
+        await session.commit()
+
+    return {"revoked": True}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# WEBHOOKS
+# ═══════════════════════════════════════════════════════════════════
+
+class WebhookCreate(BaseModel):
+    name: str
+    url: str
+    secret: str | None = None
+    events: list[str] = Field(default_factory=list)
+
+
+def _mask_secret(secret: str | None) -> str | None:
+    """Return masked version of a secret: show first 4 chars + asterisks."""
+    if not secret:
+        return None
+    return secret[:4] + "****"
+
+
+@router.post("/webhooks", status_code=201)
+async def create_webhook(
+    body: WebhookCreate,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Create a webhook config for the current tenant. Secret is masked in the response."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+
+    async with AsyncSessionLocal() as session:
+        hook = WebhookConfig(
+            tenant_id=current_user.tenant_id,
+            name=body.name,
+            url=body.url,
+            secret=body.secret,
+            events=body.events,
+        )
+        session.add(hook)
+        await session.commit()
+        await session.refresh(hook)
+
+    return {
+        "id": hook.id,
+        "name": hook.name,
+        "url": hook.url,
+        "secret": _mask_secret(hook.secret),
+        "events": hook.events or [],
+        "is_active": hook.is_active,
+        "last_triggered_at": hook.last_triggered_at.isoformat() if hook.last_triggered_at else None,
+        "last_status_code": hook.last_status_code,
+        "created_at": hook.created_at.isoformat() if hook.created_at else None,
+    }
+
+
+@router.get("/webhooks")
+async def list_webhooks(current_user: CurrentUser = Depends(get_current_user)):
+    """List all webhooks for the current tenant. Secrets are masked."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        hooks = (
+            await session.execute(
+                select(WebhookConfig).where(WebhookConfig.tenant_id == current_user.tenant_id)
+            )
+        ).scalars().all()
+
+    return [
+        {
+            "id": h.id,
+            "name": h.name,
+            "url": h.url,
+            "secret": _mask_secret(h.secret),
+            "events": h.events or [],
+            "is_active": h.is_active,
+            "last_triggered_at": h.last_triggered_at.isoformat() if h.last_triggered_at else None,
+            "last_status_code": h.last_status_code,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+        }
+        for h in hooks
+    ]
+
+
+@router.delete("/webhooks/{webhook_id}")
+async def delete_webhook(
+    webhook_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Soft-delete a webhook by setting is_active=False."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        hook = (
+            await session.execute(
+                select(WebhookConfig).where(
+                    WebhookConfig.id == webhook_id,
+                    WebhookConfig.tenant_id == current_user.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if not hook:
+            raise HTTPException(status_code=404, detail="Webhook not found")
+
+        hook.is_active = False
+        await session.commit()
+
+    return {"deleted": True}
+
+
+@router.post("/webhooks/{webhook_id}/test")
+async def test_webhook(
+    webhook_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Send a test payload to the webhook URL."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import WebhookConfig
+    from app.services.webhook_service import deliver
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        hook = (
+            await session.execute(
+                select(WebhookConfig).where(
+                    WebhookConfig.id == webhook_id,
+                    WebhookConfig.tenant_id == current_user.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    if not hook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    delivered = await deliver(
+        webhook_id=hook.id,
+        url=hook.url,
+        secret=hook.secret,
+        event="webhook.test",
+        data={"message": "Test delivery from ComplianceOS"},
+    )
+    return {"delivered": delivered}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# AUDIT LOG
+# ═══════════════════════════════════════════════════════════════════
+
+def _summarize_payload(payload: dict | None) -> str:
+    if not payload:
+        return ""
+    task = payload.get("task", "")
+    model = payload.get("model", "")
+    tokens = payload.get("tokens_used", "")
+    parts = [p for p in [task, model, f"{tokens} tokens" if tokens else ""] if p]
+    return " · ".join(parts)[:120]
+
+
+@router.get("/audit/event-types")
+async def list_audit_event_types(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return distinct event_type values for the tenant (for filter dropdown)."""
+    from app.db.base import AsyncSessionLocal
+    from app.core.audit import AuditLogEntry
+    from sqlalchemy import select, distinct
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(distinct(AuditLogEntry.event_type))
+            .where(AuditLogEntry.tenant_id == current_user.tenant_id)
+            .order_by(AuditLogEntry.event_type)
+        )
+        rows = (await session.execute(stmt)).scalars().all()
+
+    return {"event_types": list(rows)}
+
+
+@router.get("/audit")
+async def list_audit_log(
+    limit: int = 50,
+    offset: int = 0,
+    event_type: str | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return audit log entries for the tenant, newest first."""
+    from app.db.base import AsyncSessionLocal
+    from app.core.audit import AuditLogEntry
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(AuditLogEntry)
+            .where(AuditLogEntry.tenant_id == current_user.tenant_id)
+            .order_by(AuditLogEntry.created_at.desc())
+            .limit(min(limit, 200))
+            .offset(offset)
+        )
+        if event_type:
+            stmt = stmt.where(AuditLogEntry.event_type == event_type)
+        entries = (await session.execute(stmt)).scalars().all()
+
+    return {
+        "entries": [
+            {
+                "id": str(e.id),
+                "event_type": e.event_type,
+                "tenant_id": e.tenant_id,
+                "user_id": e.user_id,
+                "payload_summary": _summarize_payload(e.payload),
+                "hash": e.entry_hash[:16] + "…" if e.entry_hash else None,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in entries
+        ],
+        "count": len(entries),
+        "offset": offset,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Compliance Score
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/compliance/score/{entity_id}")
+async def get_compliance_score(
+    entity_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Return the compliance score for a single entity (% obligations satisfied)."""
+    from app.services.compliance_score import compute_score
+    score = await compute_score(entity_id=entity_id, tenant_id=current_user.tenant_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return {
+        "entity_id": score.entity_id,
+        "entity_name": score.entity_name,
+        "score_pct": score.score_pct,
+        "total_obligations": score.total_obligations,
+        "satisfied_obligations": score.satisfied_obligations,
+        "unsatisfied_obligations": score.total_obligations - score.satisfied_obligations,
+        "breakdown": [
+            {
+                "obligation_id": o.obligation_id,
+                "title": o.title,
+                "type": o.obligation_type,
+                "satisfied": o.is_satisfied,
+                "control": o.control_label,
+            }
+            for o in score.breakdown
+        ],
+        "tenant_id": score.tenant_id,
+    }
+
+
+@router.get("/compliance/scores")
+async def list_compliance_scores(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """List compliance scores for all entities in the tenant."""
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import ComplianceEntity
+    from app.services.compliance_score import compute_score
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        entities = (await session.execute(
+            select(ComplianceEntity).where(
+                ComplianceEntity.tenant_id == current_user.tenant_id
+            )
+        )).scalars().all()
+
+    scores = []
+    for entity in entities:
+        score = await compute_score(entity_id=str(entity.id), tenant_id=current_user.tenant_id)
+        if score:
+            scores.append({
+                "entity_id": score.entity_id,
+                "entity_name": score.entity_name,
+                "score_pct": score.score_pct,
+                "total_obligations": score.total_obligations,
+                "satisfied_obligations": score.satisfied_obligations,
+            })
+    return {"scores": scores, "count": len(scores)}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# M7 — Compliance Gap Analysis
+# ═══════════════════════════════════════════════════════════════════
+
+@router.post("/compliance/gap-analysis/{entity_id}")
+async def run_compliance_gap_analysis(
+    entity_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Run an AI-powered compliance gap analysis for a registered entity.
+
+    Identifies obligations that apply to the entity but have no linked control (gap),
+    computes the compliance score, and returns AI-generated risk summary and
+    prioritized remediation recommendations.
+    """
+    from app.modules.compliance.gap_analysis import run_gap_analysis
+    result = await run_gap_analysis(entity_id=entity_id, tenant_id=current_user.tenant_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
+    return result.to_dict()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# SEARCH
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/search")
+async def search_regulations(
+    q: str,
+    country: str | None = None,
+    regulator: str | None = None,
+    limit: int = 10,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Hybrid search: Postgres ILIKE (keyword) + Qdrant semantic (vector).
+    Merges results, deduplicates by regulation id.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Regulation
+    from app.services.rag import get_rag
+    from sqlalchemy import select, or_
+
+    results: dict[str, dict] = {}  # regulation_id → result dict
+
+    # 1. Postgres keyword search (title + code only; full-text search handled by Qdrant)
+    async with AsyncSessionLocal() as session:
+        stmt = select(Regulation).where(
+            or_(
+                Regulation.title.ilike(f"%{q}%"),
+                Regulation.code.ilike(f"%{q}%"),
+            ),
+        ).where(
+            # Tenant isolation: match tenant's own regulations or shared (tenant_id IS NULL)
+            (Regulation.tenant_id == current_user.tenant_id) | (Regulation.tenant_id.is_(None))
+        ).limit(min(limit, 50))
+        if country:
+            stmt = stmt.where(Regulation.country == country)
+        if regulator:
+            stmt = stmt.where(Regulation.regulator == regulator)
+        regs = (await session.execute(stmt)).scalars().all()
+        for reg in regs:
+            results[str(reg.id)] = {
+                "regulation_id": str(reg.id),
+                "title": reg.title,
+                "code": reg.code,
+                "country": reg.country,
+                "regulator": reg.regulator,
+                "source": "keyword",
+                "score": 1.0,
+            }
+
+    # 2. Qdrant semantic search
+    try:
+        rag = get_rag()
+        chunks = await rag.retrieve(
+            query=q,
+            tenant_id=current_user.tenant_id,
+            top_k=limit,
+            country_filter=country,
+        )
+        for chunk in chunks:
+            reg_id = chunk.get("regulation_id")
+            if reg_id and reg_id not in results:
+                results[reg_id] = {
+                    "regulation_id": reg_id,
+                    "title": chunk.get("title", ""),
+                    "code": chunk.get("code", ""),
+                    "country": chunk.get("country", ""),
+                    "regulator": chunk.get("regulator", ""),
+                    "source": "semantic",
+                    "score": chunk.get("score", 0.0),
+                    "excerpt": chunk.get("text", "")[:300],
+                }
+            elif reg_id and results[reg_id]["source"] == "keyword":
+                results[reg_id]["source"] = "hybrid"
+                results[reg_id]["score"] = max(results[reg_id]["score"], chunk.get("score", 0.0))
+                results[reg_id]["excerpt"] = chunk.get("text", "")[:300]
+    except Exception:
+        pass  # Qdrant unavailable — keyword results still returned
+
+    merged = sorted(results.values(), key=lambda x: x["score"], reverse=True)
+    return {"results": merged[:limit], "count": len(merged), "query": q}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# EXPORTS — CSV + PDF
+# ═══════════════════════════════════════════════════════════════════
+
+@router.get("/export/obligations.csv")
+async def export_obligations_csv_endpoint(
+    country: str | None = Query(default=None, description="2-letter ISO country filter"),
+    regulator: str | None = Query(default=None, description="Regulator filter (e.g. BCRA)"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Export obligations as CSV, optionally filtered by country and/or regulator.
+    JOINs Obligation + Regulation and scopes by tenant_id.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Obligation, Regulation
+    from app.services.export_service import export_obligations_csv
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(Obligation, Regulation)
+            .join(Regulation, Obligation.regulation_id == Regulation.id)
+            .where(Regulation.country != None)  # noqa: E711 — ensures JOIN is present
+        )
+        if country:
+            stmt = stmt.where(Regulation.country == country)
+        if regulator:
+            stmt = stmt.where(Regulation.regulator == regulator)
+
+        rows = (await session.execute(stmt)).all()
+
+    obligations = [
+        {
+            "id":              str(ob.id),
+            "regulation_code": reg.code,
+            "regulator":       reg.regulator,
+            "country":         reg.country,
+            "description":     ob.description,
+            "obligation_type": ob.obligation_type,
+            "deadline":        ob.deadline_rule or "",
+            "created_at":      ob.created_at.isoformat() if ob.created_at else "",
+        }
+        for ob, reg in rows
+    ]
+
+    csv_bytes = export_obligations_csv(obligations)
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=obligations.csv"},
+    )
+
+
+@router.get("/export/compliance-report/{entity_id}.pdf")
+async def export_compliance_report_pdf_endpoint(
+    entity_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Generate a PDF compliance report for a specific entity.
+    Verifies entity belongs to the tenant, computes score, and fetches unacknowledged alerts.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import ComplianceEntity, DeadlineAlert
+    from app.services.compliance_score import compute_score
+    from app.services.export_service import export_compliance_report_pdf
+    from sqlalchemy import select
+
+    # Verify entity belongs to tenant
+    async with AsyncSessionLocal() as session:
+        entity = (await session.execute(
+            select(ComplianceEntity).where(
+                ComplianceEntity.id == entity_id,
+                ComplianceEntity.tenant_id == current_user.tenant_id,
+            )
+        )).scalar_one_or_none()
+
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        # Fetch unacknowledged deadline alerts for this tenant
+        alerts_result = (await session.execute(
+            select(DeadlineAlert).where(
+                DeadlineAlert.tenant_id == current_user.tenant_id,
+                DeadlineAlert.is_acknowledged == False,  # noqa: E712
+            ).order_by(DeadlineAlert.days_remaining)
+        )).scalars().all()
+
+    alerts = [
+        {
+            "regulation_code": a.regulation_code,
+            "title":           a.title,
+            "deadline":        a.deadline.isoformat() if a.deadline else "",
+            "days_remaining":  a.days_remaining,
+            "severity":        a.severity,
+        }
+        for a in alerts_result
+    ]
+
+    score = await compute_score(entity_id=entity_id, tenant_id=current_user.tenant_id)
+    if score is None:
+        raise HTTPException(status_code=404, detail="Could not compute compliance score")
+
+    pdf_bytes = export_compliance_report_pdf(
+        entity_name=entity.name,
+        score=score,
+        obligations=score.breakdown,
+        alerts=alerts,
+        tenant_id=current_user.tenant_id,
+    )
+
+    safe_name = entity.name.replace(" ", "_")[:40]
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=compliance_report_{safe_name}.pdf"
+        },
+    )
+
+
+@router.get("/export/evidence.csv")
+async def export_evidence_csv_endpoint(
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """
+    Export evidence documents as CSV, scoped to the current tenant.
+    """
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import EvidenceDocument
+    from app.services.export_service import export_evidence_csv
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        docs = (await session.execute(
+            select(EvidenceDocument).where(
+                EvidenceDocument.tenant_id == current_user.tenant_id,
+            ).order_by(EvidenceDocument.created_at.desc())
+        )).scalars().all()
+
+    documents = [
+        {
+            "id":               str(d.id),
+            "title":            d.filename,
+            "doc_type":         d.source_type or "",
+            "confidence_score": str(d.extraction_confidence or ""),
+            "custody_hash":     d.custody_hash or "",
+            "uploaded_by":      "",   # EvidenceDocument has no uploaded_by field; left blank
+            "created_at":       d.created_at.isoformat() if d.created_at else "",
+        }
+        for d in docs
+    ]
+
+    csv_bytes = export_evidence_csv(documents)
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=evidence.csv"},
+    )

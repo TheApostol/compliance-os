@@ -15,8 +15,51 @@ from app.services.ai_orchestrator import (
 )
 
 
-PARSE_SYSTEM = """You are a regulatory parser for ComplianceOS. You convert raw regulatory text into
-machine-readable obligations following the ComplianceOS schema. You output ONLY valid JSON. No prose."""
+# ── Country-specific system prompts ──────────────────────────────────────────
+
+_PARSE_SYSTEM_BR = """You are a Brazilian financial regulatory compliance expert specializing in Banco Central do Brasil (BACEN), CVM, and SUSEP regulations. You extract structured compliance obligations from Portuguese-language regulatory texts.
+
+Key Brazilian regulatory concepts:
+- Circular/Resolução/Comunicado Normativo → regulatory instrument types
+- Prazo (deadline), Obrigatoriedade (mandatory requirement), Vedação (prohibition)
+- Instituições financeiras (financial institutions), Correspondentes bancários (banking agents)
+- Prevenção à lavagem de dinheiro (AML), Conheça seu cliente (KYC/CDD)
+- COAF (Financial Intelligence Unit, Brazil's equivalent of UIF)
+- SPB (Brazilian Payment System), PIX, TED, DOC
+- Patrimônio de referência (regulatory capital), Basileia III
+
+Extract all obligations, deadlines, and prohibitions. Translate obligation descriptions to English for the structured output, but preserve original Portuguese article references (e.g. "Art. 3º, §2º").
+
+You output ONLY valid JSON. No prose."""
+
+_PARSE_SYSTEM_AR = """You are an Argentine financial regulatory compliance expert specializing in BCRA (Banco Central de la República Argentina) and UIF (Unidad de Información Financiera) regulations.
+
+Key Argentine regulatory concepts:
+- Comunicación (Communication), Resolución (Resolution), Circular (Circular)
+- Prevención de lavado de activos (AML), Conozca a su cliente (KYC)
+- Entidades financieras (financial institutions), Cambiarias (FX entities)
+- UIF, BCRA, CNV (securities regulator)
+- SIDA, CENDEU (information systems)
+
+You output ONLY valid JSON. No prose."""
+
+_PARSE_SYSTEM_GENERIC = """You are an international financial regulatory compliance expert. Extract structured compliance obligations from the provided regulatory text.
+
+You output ONLY valid JSON. No prose."""
+
+# Mapping of Portuguese obligation type terms to canonical English types
+BR_OBLIGATION_TYPE_MAP: dict[str, str] = {
+    "prazo": "deadline",
+    "obrigatoriedade": "requirement",
+    "vedação": "prohibition",
+    "vedacao": "prohibition",
+    "restrição": "restriction",
+    "restricao": "restriction",
+    "comunicação": "reporting",
+    "comunicacao": "reporting",
+    "registro": "registration",
+    "limite": "limit",
+}
 
 
 PARSE_PROMPT_TEMPLATE = """Source regulation:
@@ -88,9 +131,31 @@ JSON schema:
 }}"""
 
 
+def _normalize_br_obligation_types(obligations: list[dict]) -> list[dict]:
+    """Normalize Portuguese obligation type terms to canonical English values."""
+    normalized = []
+    for ob in obligations:
+        ob = dict(ob)  # shallow copy to avoid mutating caller's data
+        raw_type = str(ob.get("obligation_type", "")).lower().strip()
+        if raw_type in BR_OBLIGATION_TYPE_MAP:
+            ob["obligation_type"] = BR_OBLIGATION_TYPE_MAP[raw_type]
+        normalized.append(ob)
+    return normalized
+
+
 class RegulatoryIntelligence:
     def __init__(self, orchestrator: AIOrchestrator | None = None):
         self.orch = orchestrator or get_orchestrator()
+
+    @staticmethod
+    def _build_system_prompt(country: str, regulator: str) -> str:
+        """Return a country-aware system prompt for M1 regulatory parsing."""
+        country_upper = country.upper()
+        if country_upper == "BR":
+            return _PARSE_SYSTEM_BR
+        if country_upper == "AR":
+            return _PARSE_SYSTEM_AR
+        return _PARSE_SYSTEM_GENERIC
 
     async def parse_regulation(
         self,
@@ -105,9 +170,11 @@ class RegulatoryIntelligence:
         """Convert raw regulatory text into structured obligations."""
         truncated = text[:20000]  # leave room for context window
 
+        system_prompt = self._build_system_prompt(country, regulator)
+
         result = await self.orch.infer(InferenceRequest(
             task=TaskType.REGULATORY_PARSING,
-            system=PARSE_SYSTEM,
+            system=system_prompt,
             user_prompt=PARSE_PROMPT_TEMPLATE.format(
                 country=country, regulator=regulator,
                 code=code, title=title, text=truncated,
@@ -124,13 +191,53 @@ class RegulatoryIntelligence:
 
         # Persist to DB — best-effort, never blocks the response
         persisted = 0
+        reg_id = None
         if result.success and obligations_data:
-            persisted = await self._persist_obligations(
+            # Apply BR obligation type normalization before persisting
+            if country.upper() == "BR":
+                obligations_data = _normalize_br_obligation_types(obligations_data)
+            persisted, reg_id = await self._persist_obligations(
                 country=country, regulator=regulator, code=code,
                 title=title, text=text,
                 obligations_data=obligations_data,
                 model_used=result.model_used,
             )
+
+        # Index in Qdrant for RAG — best-effort, non-blocking
+        if result.success and reg_id:
+            try:
+                from app.services.rag import get_rag
+                await get_rag().index_regulation(
+                    regulation_id=reg_id,
+                    country=country,
+                    regulator=regulator,
+                    code=code,
+                    title=title,
+                    text=text,
+                    tenant_id=tenant_id,
+                )
+            except Exception:
+                pass
+
+        # Add to compliance graph — best-effort, non-blocking
+        if result.success and reg_id and obligations_data:
+            try:
+                from app.services.graph_service import get_graph
+                await get_graph().add_regulation(
+                    regulation_id=reg_id,
+                    country=country,
+                    regulator=regulator,
+                    code=code,
+                    title=title,
+                    obligations=obligations_data,
+                )
+                # Wire sector APPLIES_TO edges after vertices are created
+                await get_graph().link_obligation_to_sectors(
+                    regulation_id=reg_id,
+                    obligations_data=obligations_data,
+                )
+            except Exception:
+                pass
 
         return {
             "success": result.success,
@@ -152,8 +259,8 @@ class RegulatoryIntelligence:
         text: str,
         obligations_data: list[dict],
         model_used: str,
-    ) -> int:
-        """Upsert regulation + insert obligations. Returns count persisted."""
+    ) -> tuple[int, str | None]:
+        """Upsert regulation + insert obligations. Returns (count, regulation_id)."""
         from app.db.base import AsyncSessionLocal
         from app.db.models import (
             Regulation, Obligation,
@@ -181,11 +288,15 @@ class RegulatoryIntelligence:
                         regulator=regulator,
                         code=code,
                         title=title,
-                        full_text=text[:50000],
+                        full_text=text[:50000] if text else None,
                         embedding_status="pending",
                     )
                     session.add(reg)
                     await session.flush()
+                else:
+                    # Refresh title and full_text on re-parse
+                    reg.title = title
+                    reg.full_text = text[:50000] if text else None
 
                 # Remove stale obligations for this regulation
                 await session.execute(
@@ -220,9 +331,9 @@ class RegulatoryIntelligence:
                     count += 1
 
                 await session.commit()
-                return count
+                return count, str(reg.id)
         except Exception:
-            return 0
+            return 0, None
 
     async def map_cross_border(
         self,

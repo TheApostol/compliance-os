@@ -104,6 +104,12 @@ class EvidenceEngine:
         """
         source_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
+        # Dedup: if we've already processed this exact PDF, return the cached result
+        existing = await self._find_by_source_hash(source_hash, tenant_id)
+        if existing:
+            existing["cached"] = True
+            return existing
+
         # Step 1 — Text extraction
         extracted_text, char_count = _extract_text_pymupdf(pdf_bytes)
 
@@ -156,7 +162,12 @@ class EvidenceEngine:
         timestamp_iso = now.isoformat()
         custody_hash = _compute_custody_hash(source_hash, structured_data, timestamp_iso)
 
-        # Step 4 — Persist to DB
+        # Step 4 — Cross-reference against known obligations in DB
+        obligations_matched = await self._match_obligations(
+            structured_data.get("obligations", [])
+        )
+
+        # Step 5 — Persist to DB
         doc_id = str(uuid.uuid4())
         db_record = await self._persist(
             doc_id=doc_id,
@@ -165,11 +176,27 @@ class EvidenceEngine:
             source_hash=source_hash,
             extracted_text_chars=char_count,
             structured_data=structured_data,
+            obligations_matched=obligations_matched,
             extraction_model=infer_result.model_used,
             extraction_confidence=structured_data.get("confidence", 0),
             custody_hash=custody_hash,
             custody_timestamp=now,
         )
+
+        # Index extracted text in Qdrant for RAG — best-effort, non-blocking
+        try:
+            from app.services.rag import get_rag
+            await get_rag().index_regulation(
+                regulation_id=doc_id,
+                country=structured_data.get("country", ""),
+                regulator=structured_data.get("regulator", "evidence"),
+                code=structured_data.get("reference", filename),
+                title=structured_data.get("title", filename),
+                text=extracted_text[:20000],
+                tenant_id=tenant_id,
+            )
+        except Exception:
+            pass
 
         return {
             "success": True,
@@ -179,6 +206,7 @@ class EvidenceEngine:
             "extracted_text_chars": char_count,
             "structured_data": structured_data,
             "obligations_count": len(structured_data.get("obligations", [])),
+            "obligations_matched": obligations_matched,
             "custody_hash": custody_hash,
             "custody_timestamp": timestamp_iso,
             "extraction_model": infer_result.model_used,
@@ -265,6 +293,78 @@ class EvidenceEngine:
             ],
         }
 
+    async def _match_obligations(self, extracted_obligations: list[dict]) -> list[dict]:
+        """Cross-reference extracted obligation types against DB obligations."""
+        if not extracted_obligations:
+            return []
+        from app.db.base import AsyncSessionLocal
+        from app.db.models import Obligation
+        from sqlalchemy import select
+
+        # Normalise types: evidence schema uses lowercase, DB uses uppercase
+        types = list({
+            str(o.get("obligation_type", "")).upper()
+            for o in extracted_obligations
+            if o.get("obligation_type")
+        })
+        if not types:
+            return []
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = (
+                    select(Obligation)
+                    .where(Obligation.obligation_type.in_(types))
+                    .limit(50)
+                )
+                result = await session.execute(stmt)
+                db_obligations = result.scalars().all()
+            return [
+                {
+                    "obligation_id": str(ob.id),
+                    "obligation_code": ob.obligation_code,
+                    "obligation_type": ob.obligation_type,
+                    "description": ob.description[:200],
+                    "severity": ob.severity.value,
+                }
+                for ob in db_obligations
+            ]
+        except Exception:
+            return []
+
+    async def _find_by_source_hash(self, source_hash: str, tenant_id: str) -> dict | None:
+        """Return formatted document dict if this PDF was already processed."""
+        from app.db.base import AsyncSessionLocal
+        from app.db.models import EvidenceDocument
+        from sqlalchemy import select
+
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = select(EvidenceDocument).where(
+                    EvidenceDocument.source_hash == source_hash,
+                    EvidenceDocument.tenant_id == tenant_id,
+                )
+                result = await session.execute(stmt)
+                doc = result.scalar_one_or_none()
+            if not doc:
+                return None
+            return {
+                "success": True,
+                "document_id": str(doc.id),
+                "filename": doc.filename,
+                "source_hash": doc.source_hash,
+                "extracted_text_chars": doc.extracted_text_chars,
+                "structured_data": doc.structured_data,
+                "obligations_matched": doc.obligations_matched or [],
+                "obligations_count": len((doc.structured_data or {}).get("obligations", [])),
+                "custody_hash": doc.custody_hash,
+                "custody_timestamp": doc.custody_timestamp.isoformat(),
+                "extraction_model": doc.extraction_model,
+                "extraction_confidence": doc.extraction_confidence,
+                "db_persisted": True,
+            }
+        except Exception:
+            return None
+
     async def _persist(
         self,
         doc_id: str,
@@ -273,6 +373,7 @@ class EvidenceEngine:
         source_hash: str,
         extracted_text_chars: int,
         structured_data: dict,
+        obligations_matched: list,
         extraction_model: str,
         extraction_confidence: int,
         custody_hash: str,
@@ -293,7 +394,7 @@ class EvidenceEngine:
                     source_hash=source_hash,
                     extracted_text_chars=extracted_text_chars,
                     structured_data=structured_data,
-                    obligations_matched=[],
+                    obligations_matched=obligations_matched,
                     extraction_model=extraction_model,
                     extraction_confidence=extraction_confidence,
                     custody_hash=custody_hash,
@@ -303,6 +404,5 @@ class EvidenceEngine:
                 session.add(doc)
                 await session.commit()
             return True
-        except Exception as e:
-            # Don't let DB failure block the extraction result
+        except Exception:
             return False
