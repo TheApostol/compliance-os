@@ -16,10 +16,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.db.base import AsyncSessionLocal
+from app.db.models import ComplianceEntity, GraphVertex, GraphEdge, Regulation
 from app.services.ai_orchestrator import (
     AIOrchestrator, InferenceRequest, TaskType, get_orchestrator
 )
 from app.services.compliance_score import compute_score
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
@@ -81,10 +84,6 @@ async def run_gap_analysis(
     Returns None if the entity is not found for the given tenant.
     Never raises — AI failures are handled gracefully with a fallback summary.
     """
-    from app.db.base import AsyncSessionLocal
-    from app.db.models import ComplianceEntity, GraphVertex, GraphEdge, Regulation
-    from sqlalchemy import select
-
     orch = orchestrator or get_orchestrator()
 
     # ── Step 1: Load the entity ────────────────────────────────────────────
