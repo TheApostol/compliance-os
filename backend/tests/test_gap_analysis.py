@@ -351,95 +351,36 @@ async def test_ai_failure_graceful_returns_result():
 # Test 6: endpoint returns 404 when entity not found
 # ---------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_endpoint_404_when_entity_not_found():
+def test_endpoint_404_when_entity_not_found():
     """POST /compliance/gap-analysis/{entity_id} returns 404 when entity is missing."""
+    from contextlib import asynccontextmanager
     from fastapi.testclient import TestClient
-    from httpx import AsyncClient, ASGITransport
 
     from app.main import app
     from app.core.auth import get_current_user, CurrentUser
 
     entity_id = str(uuid.uuid4())
 
-    # Override auth dependency
-    fake_user = CurrentUser(
-        user_id="user-1",
-        tenant_id=TENANT_ID,
-        role="analyst",
-        is_admin=False,
-    )
+    def _fake_user() -> CurrentUser:
+        return CurrentUser(user_id="user-1", tenant_id=TENANT_ID, role="analyst")
 
-    async def override_auth():
-        return fake_user
+    # Suppress lifespan (avoids DB/Qdrant connections)
+    @asynccontextmanager
+    async def _noop_lifespan(app):
+        yield
 
-    app.dependency_overrides[get_current_user] = override_auth
+    app.router.lifespan_context = _noop_lifespan
+    app.dependency_overrides[get_current_user] = _fake_user
 
-    try:
-        # Patch run_gap_analysis to return None (entity not found)
-        with patch(
-            "app.modules.compliance.gap_analysis.run_gap_analysis",
-            new=AsyncMock(return_value=None),
-        ):
-            # Also patch the import inside the endpoint
-            with patch(
-                "app.api.v1.router.run_gap_analysis" if hasattr(__import__("app.api.v1.router", fromlist=[""]), "run_gap_analysis") else "app.modules.compliance.gap_analysis.run_gap_analysis",
-                new=AsyncMock(return_value=None),
-            ):
-                transport = ASGITransport(app=app)
-                async with AsyncClient(transport=transport, base_url="http://test") as ac:
-                    resp = await ac.post(
-                        f"/api/v1/compliance/gap-analysis/{entity_id}",
-                        headers={"Authorization": "Bearer fake-token"},
-                    )
-
-        # The endpoint does its own import so we need to patch at the right point
-        # If the above double-patch didn't catch it, at minimum verify the endpoint exists
-        assert resp.status_code in {404, 200, 422, 401}
-    finally:
-        app.dependency_overrides.pop(get_current_user, None)
-
-
-@pytest.mark.asyncio
-async def test_endpoint_404_via_module_patch():
-    """Direct test: endpoint returns 404 when run_gap_analysis returns None."""
-    from httpx import AsyncClient, ASGITransport
-
-    from app.main import app
-    from app.core.auth import get_current_user, CurrentUser
-
-    entity_id = str(uuid.uuid4())
-
-    fake_user = CurrentUser(
-        user_id="user-1",
-        tenant_id=TENANT_ID,
-        role="analyst",
-        is_admin=False,
-    )
-
-    async def override_auth():
-        return fake_user
-
-    app.dependency_overrides[get_current_user] = override_auth
+    import app.modules.compliance.gap_analysis as gap_mod
+    original_fn = gap_mod.run_gap_analysis
+    gap_mod.run_gap_analysis = AsyncMock(return_value=None)
 
     try:
-        with patch(
-            "app.modules.compliance.gap_analysis.run_gap_analysis",
-            new_callable=lambda: lambda: AsyncMock(return_value=None),
-        ):
-            import app.modules.compliance.gap_analysis as gap_mod
-            original = gap_mod.run_gap_analysis
-            gap_mod.run_gap_analysis = AsyncMock(return_value=None)
-            try:
-                transport = ASGITransport(app=app)
-                async with AsyncClient(transport=transport, base_url="http://test") as ac:
-                    resp = await ac.post(
-                        f"/api/v1/compliance/gap-analysis/{entity_id}",
-                        headers={"Authorization": "Bearer fake-token"},
-                    )
-                assert resp.status_code == 404
-                assert "not found" in resp.json().get("detail", "").lower()
-            finally:
-                gap_mod.run_gap_analysis = original
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.post(f"/api/v1/compliance/gap-analysis/{entity_id}")
+        assert resp.status_code == 404
+        assert "not found" in resp.json().get("detail", "").lower()
     finally:
+        gap_mod.run_gap_analysis = original_fn
         app.dependency_overrides.pop(get_current_user, None)

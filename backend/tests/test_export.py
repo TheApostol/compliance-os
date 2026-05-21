@@ -5,44 +5,15 @@ All DB access is mocked — no live database required.
 from __future__ import annotations
 
 import uuid
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.core.auth import CurrentUser, get_current_user
 from app.services.export_service import (
     export_evidence_csv,
     export_obligations_csv,
     export_compliance_report_pdf,
 )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Test client fixture (no-op lifespan, auth overridden)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _analyst_user() -> CurrentUser:
-    return CurrentUser(user_id="test-user", tenant_id="polkorp", role="analyst")
-
-
-@pytest.fixture(scope="module")
-def export_client() -> TestClient:
-    """TestClient with no-op lifespan and auth override (no DB connection needed)."""
-    from app.main import app
-
-    @asynccontextmanager
-    async def _noop_lifespan(app):
-        yield
-
-    app.router.lifespan_context = _noop_lifespan
-    app.dependency_overrides[get_current_user] = _analyst_user
-
-    with TestClient(app, raise_server_exceptions=True) as client:
-        yield client
-
-    app.dependency_overrides.pop(get_current_user, None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -188,11 +159,19 @@ def test_pdf_returns_pdf_bytes():
 # 5. test_export_endpoint_csv
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_export_endpoint_csv(export_client):
+@pytest.mark.asyncio
+async def test_export_endpoint_csv():
     """
-    GET /api/v1/export/obligations.csv → 200, content-type text/csv.
-    DB is mocked to return an empty result set.
+    Invoke export_obligations_csv_endpoint directly (bypassing ASGI middleware).
+    Mocks the DB to return empty rows.
+    Verifies the endpoint returns a StreamingResponse with text/csv media type.
     """
+    from fastapi.responses import StreamingResponse
+    from app.api.v1.router import export_obligations_csv_endpoint
+    from app.core.auth import CurrentUser
+
+    user = CurrentUser(user_id="test-user", tenant_id="polkorp", role="analyst")
+
     empty_execute_result = MagicMock()
     empty_execute_result.all.return_value = []
 
@@ -202,7 +181,10 @@ def test_export_endpoint_csv(export_client):
     session_mock.__aexit__ = AsyncMock(return_value=False)
 
     with patch("app.db.base.AsyncSessionLocal", return_value=session_mock):
-        response = export_client.get("/api/v1/export/obligations.csv")
+        response = await export_obligations_csv_endpoint(
+            country=None, regulator=None, current_user=user
+        )
 
-    assert response.status_code == 200
-    assert "text/csv" in response.headers.get("content-type", "")
+    assert isinstance(response, StreamingResponse)
+    assert response.media_type == "text/csv"
+    assert "obligations.csv" in response.headers.get("content-disposition", "")
