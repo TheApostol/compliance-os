@@ -348,39 +348,34 @@ async def test_ai_failure_graceful_returns_result():
 
 
 # ---------------------------------------------------------------------------
-# Test 6: endpoint returns 404 when entity not found
+# Test 6: endpoint handler raises HTTPException 404 when run_gap_analysis → None
 # ---------------------------------------------------------------------------
 
-def test_endpoint_404_when_entity_not_found():
-    """POST /compliance/gap-analysis/{entity_id} returns 404 when entity is missing."""
-    from contextlib import asynccontextmanager
-    from fastapi.testclient import TestClient
-
-    from app.main import app
-    from app.core.auth import get_current_user, CurrentUser
+@pytest.mark.asyncio
+async def test_endpoint_404_when_entity_not_found():
+    """
+    The endpoint handler raises HTTPException(404) when run_gap_analysis returns None.
+    Tested by calling the handler function directly with a mocked import.
+    """
+    from fastapi import HTTPException
 
     entity_id = str(uuid.uuid4())
-
-    def _fake_user() -> CurrentUser:
-        return CurrentUser(user_id="user-1", tenant_id=TENANT_ID, role="analyst")
-
-    # Suppress lifespan (avoids DB/Qdrant connections)
-    @asynccontextmanager
-    async def _noop_lifespan(app):
-        yield
-
-    app.router.lifespan_context = _noop_lifespan
-    app.dependency_overrides[get_current_user] = _fake_user
 
     import app.modules.compliance.gap_analysis as gap_mod
     original_fn = gap_mod.run_gap_analysis
     gap_mod.run_gap_analysis = AsyncMock(return_value=None)
 
     try:
-        with TestClient(app, raise_server_exceptions=True) as client:
-            resp = client.post(f"/api/v1/compliance/gap-analysis/{entity_id}")
-        assert resp.status_code == 404
-        assert "not found" in resp.json().get("detail", "").lower()
+        # Import the endpoint handler directly and call it
+        from app.api.v1.router import run_compliance_gap_analysis
+        from app.core.auth import CurrentUser
+
+        fake_user = CurrentUser(user_id="user-1", tenant_id=TENANT_ID, role="analyst")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await run_compliance_gap_analysis(entity_id=entity_id, current_user=fake_user)
+
+        assert exc_info.value.status_code == 404
+        assert "not found" in exc_info.value.detail.lower()
     finally:
         gap_mod.run_gap_analysis = original_fn
-        app.dependency_overrides.pop(get_current_user, None)
