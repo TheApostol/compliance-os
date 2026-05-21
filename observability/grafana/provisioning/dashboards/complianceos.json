@@ -179,6 +179,39 @@
         { "id": "labelsToFields", "options": { "valueLabel": "handler" } },
         { "id": "organize", "options": { "renameByName": { "handler": "Endpoint", "Value": "Req/s" } } }
       ]
+    },
+    {
+      "id": 6,
+      "title": "Crawl Success Rate",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(complianceos_crawl_success_total[5m])) / sum(rate(complianceos_crawl_attempts_total[5m]))",
+          "legendFormat": "Success Rate",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.7},
+              {"color": "green", "value": 0.9}
+            ]
+          }
+        }
+      }
     }
   ]
 }

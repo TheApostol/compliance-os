@@ -1,6 +1,20 @@
+from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 
+# ── Crawler metrics (used by M4 deadline checker + LATAM crawler) ──────────────
+CRAWL_ATTEMPTS = Counter(
+    "complianceos_crawl_attempts_total",
+    "Total crawler attempts",
+    ["regulator"],
+)
+CRAWL_SUCCESS = Counter(
+    "complianceos_crawl_success_total",
+    "Successful crawler runs",
+    ["regulator"],
+)
+
 _instrumentator: Instrumentator | None = None
+
 
 def setup_metrics(app) -> None:
     global _instrumentator

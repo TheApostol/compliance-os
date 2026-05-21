@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import structlog
 
 from app.services.ai_orchestrator import get_orchestrator, InferenceRequest, TaskType
@@ -80,8 +82,30 @@ class PredictiveEngine:
     ) -> dict:
         """
         Simulate market entry for a business model in target countries via AI.
-        Falls back to static response on failure.
+        Checks Redis cache first; on rate-limit error uses cache then rule-based fallback.
+        Stores successful AI results in Redis with 1h TTL.
         """
+        import redis.asyncio as aioredis
+        from app.core.config import get_settings
+
+        cache_key = (
+            f"market_entry:"
+            f"{hashlib.sha256(f'{sorted(countries)}{business_model}'.encode()).hexdigest()[:16]}"
+        )
+
+        # Check Redis cache before calling AI
+        try:
+            r = aioredis.from_url(get_settings().redis_url, socket_connect_timeout=2)
+            cached = await r.get(cache_key)
+            await r.aclose()
+            if cached:
+                result = json.loads(cached)
+                result["_source"] = "cached"
+                log.info("predictive_market_entry_cache_hit", tenant_id=tenant_id, cache_key=cache_key)
+                return result
+        except Exception as cache_exc:
+            log.warning("predictive_market_entry_cache_read_error", tenant_id=tenant_id, error=str(cache_exc))
+
         countries_str = ", ".join(countries) if countries else "unspecified"
         try:
             req = InferenceRequest(
@@ -110,6 +134,23 @@ class PredictiveEngine:
                 max_tokens=1024,
             )
             result = await get_orchestrator().infer(req)
+
+            # Detect rate limit error from orchestrator
+            if not result.success and result.error and (
+                "429" in result.error or "rate" in result.error.lower()
+            ):
+                log.warning(
+                    "predictive_market_entry_rate_limit",
+                    tenant_id=tenant_id,
+                    error=result.error,
+                )
+                # Return rule-based fallback on rate limit
+                fallback = dict(_FALLBACK_MARKET_ENTRY)
+                fallback["business_model"] = business_model
+                fallback["countries"] = countries
+                fallback["_source"] = "rule-based"
+                return fallback
+
             if result.success and result.parsed_json:
                 data = result.parsed_json
                 # Validate expected keys are present
@@ -117,7 +158,24 @@ class PredictiveEngine:
                     # Ensure business_model and countries are always present
                     data.setdefault("business_model", business_model)
                     data.setdefault("countries", countries)
+                    data["_source"] = "ai"
                     log.info("predictive_market_entry_ai_success", tenant_id=tenant_id, countries=countries_str)
+
+                    # Store successful AI result in Redis with 1h TTL
+                    try:
+                        r = aioredis.from_url(get_settings().redis_url, socket_connect_timeout=2)
+                        # Store without _source so we set it on cache hit
+                        cache_data = {k: v for k, v in data.items() if k != "_source"}
+                        await r.setex(cache_key, 3600, json.dumps(cache_data))
+                        await r.aclose()
+                        log.info("predictive_market_entry_cache_stored", tenant_id=tenant_id, cache_key=cache_key)
+                    except Exception as cache_store_exc:
+                        log.warning(
+                            "predictive_market_entry_cache_write_error",
+                            tenant_id=tenant_id,
+                            error=str(cache_store_exc),
+                        )
+
                     return data
             log.warning("predictive_market_entry_ai_empty", tenant_id=tenant_id, success=result.success)
         except Exception as exc:
@@ -127,6 +185,7 @@ class PredictiveEngine:
         return {
             "business_model": business_model,
             "countries": countries,
+            "_source": "rule-based",
             **_FALLBACK_MARKET_ENTRY,
         }
 
