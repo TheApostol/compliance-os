@@ -1,10 +1,24 @@
 # ComplianceOS
 
-> **AI-native Regulatory Intelligence & Compliance Operations Infrastructure for LATAM Regulated Industries**
+> AI-native Regulatory Intelligence & Compliance Operations Infrastructure for LATAM Regulated Industries.
 
-ComplianceOS transforms regulation into structured obligations, operational workflows, audit trails, predictive intelligence, and AI-assisted remediation.
+ComplianceOS transforms regulations into:
+- structured obligations
+- operational workflows
+- remediation pipelines
+- evidence chains
+- predictive regulatory intelligence
+- graph-linked compliance operations
+- AI-assisted governance automation
 
-Built with FastAPI, Next.js, PostgreSQL, Redis, Qdrant, NVIDIA NIM, and multi-tenant AI orchestration.
+Built with:
+- FastAPI
+- Next.js 14
+- PostgreSQL
+- Redis
+- Qdrant
+- NVIDIA NIM
+- Multi-tenant AI orchestration
 
 ---
 
@@ -12,60 +26,63 @@ Built with FastAPI, Next.js, PostgreSQL, Redis, Qdrant, NVIDIA NIM, and multi-te
 
 | Module | Description | Status |
 |---|---|---|
-| M1 — Regulatory Intelligence | Regulatory crawling, parsing, obligation extraction, cross-border mapping | ✅ Functional |
-| M2 — Compliance Copilot | Multi-jurisdiction AI copilot with RAG | ✅ Functional |
-| M3 — AML/KYC | Screening, sanctions, EDD orchestration | ✅ Functional |
-| M4 — Monitoring | Transaction monitoring, drift detection, anomaly analysis | ✅ Functional |
-| M5 — AI Governance | AI auditing, prompt injection detection, model governance | ✅ Functional |
-| M6 — Evidence Automation | OCR, evidence extraction, custody chain | ✅ Functional |
-| M7 — Workflow Orchestration & Remediation | Compliance workflows, approvals, remediation pipelines | 🚧 Beta |
-| M8 — Predictive Regulatory Intelligence | Jurisdiction scoring, forecasting, market-entry simulation | 🚧 Beta |
+| M1 | Regulatory Intelligence | ✅ |
+| M2 | Compliance Copilot | ✅ |
+| M3 | AML / KYC | ✅ |
+| M4 | Monitoring | ✅ |
+| M5 | AI Governance | ✅ |
+| M6 | Evidence Automation | ✅ |
+| M7 | Workflow Orchestration & Remediation | 🚧 Beta |
+| M8 | Predictive Regulatory Intelligence | 🚧 Beta |
 
 ---
 
-# Current Architecture
+# M7 — Workflow Orchestration & Remediation
 
-```text
-Frontend (Next.js 14)
-    ↓
-FastAPI API Gateway
-    ↓
-AI Orchestration Layer
-    ↓
-M1 → M8 Compliance Modules
-    ↓
-PostgreSQL + Qdrant + Redis
-```
+M7 converts:
+- regulations
+- obligations
+- AI outputs
+- alerts
+- evidence
+- compliance risks
 
----
-
-# M7 — Workflow Orchestration
+into executable workflows.
 
 ## Features
+
 - remediation workflows
-- approval flows
+- approval chains
+- escalation paths
 - evidence collection
-- escalation chains
 - workflow persistence
 - audit-linked execution
+- tenant-scoped operations
+- downstream graph integration
 
 ## Endpoints
+
 ```text
 POST /api/v1/workflow/remediation
 ```
 
 ---
 
-# M8 — Predictive Intelligence
+# M8 — Predictive Regulatory Intelligence
+
+M8 provides predictive regulatory analysis and jurisdiction intelligence.
 
 ## Features
+
 - jurisdiction scoring
-- regulatory velocity analysis
 - AML strictness scoring
-- innovation friendliness scoring
+- regulatory velocity scoring
 - market-entry simulation
+- enforcement trend analysis
+- expansion risk estimation
 
 ## Endpoints
+
 ```text
 GET  /api/v1/predict/jurisdiction-risk
 POST /api/v1/simulate/market-entry
@@ -73,9 +90,71 @@ POST /api/v1/simulate/market-entry
 
 ---
 
+# LATAM Regulatory Crawlers
+
+ComplianceOS now includes a unified LATAM crawler engine capable of ingesting data from central banks and regulators across the region.
+
+## Supported Regulators
+
+| Country | Regulator |
+|---|---|
+| Argentina | BCRA |
+| Brazil | BACEN |
+| Chile | BCCh |
+| Peru | BCRP |
+| Mexico | Banxico |
+| Colombia | SFC |
+
+## Features
+
+- async crawling
+- retry handling
+- tenant isolation
+- AI obligation extraction
+- evidence hashing
+- graph integration hooks
+- Qdrant RAG indexing hooks
+- secure credential loading
+- immutable audit-ready ingestion
+
+## Crawler Endpoint
+
+```text
+POST /api/v1/crawler/latam/{regulator}
+```
+
+Example:
+
+```text
+POST /api/v1/crawler/latam/BCRA
+```
+
+---
+
+# Current Architecture
+
+```text
+Frontend (Next.js 14)
+        ↓
+FastAPI API Gateway
+        ↓
+AI Orchestration Layer
+        ↓
+M1 → M8 Compliance Modules
+        ↓
+Workflow Engine + Predictive Engine
+        ↓
+PostgreSQL + Qdrant + Redis
+        ↓
+Graph + Evidence + Regulatory Crawlers
+```
+
+---
+
 # Regulatory Coverage
 
-## Current jurisdictions
+## Jurisdictions
+
 - Argentina
 - Brazil
 - Mexico
@@ -86,6 +165,7 @@ POST /api/v1/simulate/market-entry
 - Uruguay
 
 ## Regulators
+
 - BCRA
 - UIF
 - CNV
@@ -100,46 +180,45 @@ POST /api/v1/simulate/market-entry
 
 ---
 
-# Infrastructure
+# AI Stack
 
-## Backend
-- FastAPI
-- SQLAlchemy
-- PostgreSQL
-- Redis
-- Qdrant
-- Alembic
+## Models
 
-## Frontend
-- Next.js 14
-- TypeScript
-- Tailwind
-
-## AI Stack
-- NVIDIA NIM
 - Llama 3.3
 - Nemotron
 - Kimi K2
+
+## AI Capabilities
+
+- regulatory parsing
+- obligation extraction
+- evidence extraction
+- workflow remediation
+- predictive scoring
+- RAG retrieval
+- graph contextualization
 
 ---
 
 # Enterprise Features
 
 - multi-tenant architecture
-- JWT auth
+- JWT authentication
 - API keys
-- immutable audit log
+- immutable audit logs
 - RAG retrieval
-- compliance graph
-- crawler scheduler
+- graph intelligence
+- crawler scheduling
 - SSE events
-- rate limiting
-- webhook support
 - observability
+- Prometheus metrics
+- webhook support
+- workflow orchestration
+- predictive intelligence
 
 ---
 
-# Positioning
+# Strategic Positioning
 
 ComplianceOS is not a generic compliance dashboard.
 
@@ -152,20 +231,27 @@ It is:
 # Roadmap
 
 ## In Progress
+
 - workflow UI
 - remediation dashboards
+- graph explorer
 - regulatory diff engine
 - obligation engine
-- expansion simulator
 - predictive forecasting
+- expansion simulator
+- evidence pipelines
+- automated sanctions ingestion
 
 ## Planned
-- advanced graph explorer
+
 - policy drafting AI
 - enforcement prediction
+- SOC2 readiness
+- ServiceNow integration
+- Jira integration
+- Slack workflows
+- advanced graph RAG
 - regulatory timeline visualization
-- enterprise integrations
-- SOC2 preparation
 
 ---
 
