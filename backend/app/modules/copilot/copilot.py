@@ -9,7 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.ai_orchestrator import (
-    AIOrchestrator, InferenceRequest, TaskType, get_orchestrator
+    AIOrchestrator, InferenceRequest, TaskType, get_orchestrator,
+    get_tenant_vertical, VERTICAL_SYSTEM_PROMPTS,
 )
 
 
@@ -38,6 +39,10 @@ class ComplianceCopilot:
         output_schema: dict | None = None,
     ) -> dict[str, Any]:
         """Ask the copilot. RAG context injected automatically from Qdrant when available."""
+        # Inject vertical-aware system prompt
+        vertical = await get_tenant_vertical(tenant_id)
+        system = VERTICAL_SYSTEM_PROMPTS.get(vertical, COPILOT_SYSTEM)
+
         # Retrieve relevant regulation chunks from Qdrant (best-effort)
         rag_context = ""
         rag_chunks = 0
@@ -59,7 +64,7 @@ class ComplianceCopilot:
 
         result = await self.orch.infer(InferenceRequest(
             task=TaskType.COPILOT_DEEP if deep_mode else TaskType.COPILOT_QA,
-            system=COPILOT_SYSTEM,
+            system=system,
             user_prompt=prompt,
             tenant_id=tenant_id,
             user_id=user_id,
