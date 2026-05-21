@@ -19,9 +19,13 @@ from typing import Any, Dict, List, Optional
 import httpx
 from pydantic import BaseModel, Field
 
+import structlog
+
 from app.db.base import AsyncSessionLocal
 from app.db.models import Regulation
-from app.services.ai_orchestrator import ai_orchestrator
+from app.services.ai_orchestrator import get_orchestrator, InferenceRequest, TaskType
+
+log = structlog.get_logger(__name__)
 
 
 class CrawlResult(BaseModel):
@@ -118,7 +122,7 @@ class LatamRegulatoryCrawler:
         regulator: str,
         title: str,
         data: Any,
-        model_preference: str = "meta/llama-3.3-70b-instruct",
+        tenant_id: str = "system",
     ) -> List[Dict[str, Any]]:
         prompt = (
             f"Extract structured regulatory obligations, risks, deadlines, metrics, "
@@ -126,11 +130,13 @@ class LatamRegulatoryCrawler:
             f"Return strict JSON with an 'obligations' list.\n\n"
             f"{json.dumps(data, ensure_ascii=False, default=str)[:14000]}"
         )
-        result = await ai_orchestrator.infer(
-            task_type="regulatory_parsing",
-            prompt=prompt,
-            model_preference=model_preference,
+        req = InferenceRequest(
+            task=TaskType.REGULATORY_PARSING,
+            system="You are a regulatory intelligence engine for LATAM financial regulators.",
+            user_prompt=prompt,
+            tenant_id=tenant_id,
         )
+        result = await get_orchestrator().infer(req)
         return self._extract_obligations(result)
 
     async def crawl_regulator(self, regulator: str, tenant_id: str, *, store: bool = True, **kwargs) -> List[CrawlResult]:
@@ -160,10 +166,10 @@ class LatamRegulatoryCrawler:
             url = f"{base}{path}"
             try:
                 data = await self._get_json(url)
-                obligations = await self._parse_with_ai(regulator="BCRA", title=title, data=data)
+                obligations = await self._parse_with_ai(regulator="BCRA", title=title, data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCRA - {title}", country="AR", regulator="BCRA", code=code, title=title, raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
-                print(f"[BCRA {title}] Error: {exc}")
+                log.warning("bcra_crawl_error", title=title, error=str(exc))
         return results
 
     async def _crawl_bacen(self, tenant_id: str, series_codes: Optional[List[str]] = None, **kwargs) -> List[CrawlResult]:
@@ -175,10 +181,10 @@ class LatamRegulatoryCrawler:
             try:
                 data = await self._get_json(url)
                 sample = data[:100] if isinstance(data, list) else data
-                obligations = await self._parse_with_ai(regulator="BACEN", title=f"Series {code}", data=sample)
+                obligations = await self._parse_with_ai(regulator="BACEN", title=f"Series {code}", data=sample, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BACEN Series {code}", country="BR", regulator="BACEN", code=f"BACEN_SGS_{code}", title=f"BACEN SGS Series {code}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
-                print(f"[BACEN {code}] Error: {exc}")
+                log.warning("bacen_crawl_error", series=code, error=str(exc))
         return results
 
     async def _crawl_bcch(self, tenant_id: str, timeseries: Optional[List[str]] = None, **kwargs) -> List[CrawlResult]:
@@ -186,7 +192,7 @@ class LatamRegulatoryCrawler:
         user = self._get_credential("BCCH_USER", tenant_id)
         password = self._get_credential("BCCH_PASS", tenant_id)
         if not user or not password:
-            print("[BCCh] Credentials missing. Set BCCH_USER and BCCH_PASS.")
+            log.warning("bcch_credentials_missing")
             return []
         timeseries = timeseries or ["F022.TPM.TIN.D001.NO.Z.D"]
         results: List[CrawlResult] = []
@@ -194,10 +200,10 @@ class LatamRegulatoryCrawler:
             params = {"user": user, "pass": password, "function": "GetSeries", "timeseries": ts, "firstdate": (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"), "lastdate": datetime.now().strftime("%Y-%m-%d")}
             try:
                 data = await self._get_json(base, params=params)
-                obligations = await self._parse_with_ai(regulator="BCCh", title=f"Series {ts}", data=data)
+                obligations = await self._parse_with_ai(regulator="BCCh", title=f"Series {ts}", data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCCh Series {ts}", country="CL", regulator="BCCh", code=f"BCCH_{ts}", title=f"BCCh Series {ts}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=base))
             except Exception as exc:
-                print(f"[BCCh {ts}] Error: {exc}")
+                log.warning("bcch_crawl_error", series=ts, error=str(exc))
         return results
 
     async def _crawl_bcrp(self, tenant_id: str, series_codes: Optional[List[str]] = None, **kwargs) -> List[CrawlResult]:
@@ -208,16 +214,16 @@ class LatamRegulatoryCrawler:
             url = f"{base}/{code}/json"
             try:
                 data = await self._get_json(url)
-                obligations = await self._parse_with_ai(regulator="BCRP", title=f"Series {code}", data=data)
+                obligations = await self._parse_with_ai(regulator="BCRP", title=f"Series {code}", data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCRP Series {code}", country="PE", regulator="BCRP", code=f"BCRP_{code}", title=f"BCRP Series {code}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
-                print(f"[BCRP {code}] Error: {exc}")
+                log.warning("bcrp_crawl_error", series=code, error=str(exc))
         return results
 
     async def _crawl_banxico(self, tenant_id: str, series: Optional[List[str]] = None, **kwargs) -> List[CrawlResult]:
         token = self._get_credential("BANXICO_TOKEN", tenant_id)
         if not token:
-            print("[Banxico] Token missing. Set BANXICO_TOKEN.")
+            log.warning("banxico_token_missing")
             return []
         base = "https://www.banxico.org.mx/SieAPIRest/service/v1/series"
         series = series or ["SF43783"]
@@ -226,10 +232,10 @@ class LatamRegulatoryCrawler:
             url = f"{base}/{s}/datos"
             try:
                 data = await self._get_json(url, headers={"Bmx-Token": token})
-                obligations = await self._parse_with_ai(regulator="Banxico", title=f"Series {s}", data=data)
+                obligations = await self._parse_with_ai(regulator="Banxico", title=f"Series {s}", data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"Banxico Series {s}", country="MX", regulator="Banxico", code=f"BANXICO_{s}", title=f"Banxico Series {s}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
-                print(f"[Banxico {s}] Error: {exc}")
+                log.warning("banxico_crawl_error", series=s, error=str(exc))
         return results
 
     async def _crawl_sfc(self, tenant_id: str, **kwargs) -> List[CrawlResult]:
@@ -237,15 +243,25 @@ class LatamRegulatoryCrawler:
         try:
             data = await self._get_json(url, params={"$limit": 100})
             sample = data[:50] if isinstance(data, list) else data
-            obligations = await self._parse_with_ai(regulator="SFC", title="Open Data", data=sample)
+            obligations = await self._parse_with_ai(regulator="SFC", title="Open Data", data=sample, tenant_id=tenant_id)
             return [CrawlResult(source="SFC Open Data", country="CO", regulator="SFC", code="SFC_OPEN_DATA", title="SFC Open Data", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url)]
         except Exception as exc:
-            print(f"[SFC] Error: {exc}")
+            log.warning("sfc_crawl_error", error=str(exc))
             return []
 
     async def store_results(self, results: List[CrawlResult]) -> None:
+        from sqlalchemy import select
         async with AsyncSessionLocal() as session:
             for res in results:
+                existing = await session.execute(
+                    select(Regulation).where(
+                        Regulation.source_hash == res.evidence_hash,
+                        Regulation.tenant_id == res.tenant_id,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    log.info("latam_crawler_dedup_skip", source=res.source, hash=res.evidence_hash[:12])
+                    continue
                 regulation = Regulation(
                     tenant_id=res.tenant_id,
                     country=res.country,
@@ -268,13 +284,13 @@ class LatamRegulatoryCrawler:
             rag = get_rag()
             await rag.index_regulation(regulation_id=str(regulation.id), country=result.country, regulator=result.regulator, code=result.code, title=regulation.title, text=regulation.full_text or "", tenant_id=result.tenant_id)
         except Exception as exc:
-            print(f"[RAG hook] Failed for {result.source}: {exc}")
+            log.warning("latam_rag_hook_failed", source=result.source, error=str(exc))
         try:
             from app.services.graph_service import get_graph
             graph = get_graph()
             await graph.add_regulation(regulation_id=str(regulation.id), country=result.country, regulator=result.regulator, code=result.code, title=regulation.title, obligations=result.extracted_obligations)
         except Exception as exc:
-            print(f"[Graph hook] Failed for {result.source}: {exc}")
+            log.warning("latam_graph_hook_failed", source=result.source, error=str(exc))
 
 
 async def crawl_latam_regulator(regulator: str, tenant_id: str, *, store: bool = True, **kwargs) -> List[CrawlResult]:
@@ -285,5 +301,6 @@ async def crawl_latam_regulator(regulator: str, tenant_id: str, *, store: bool =
 if __name__ == "__main__":
     async def main():
         results = await crawl_latam_regulator("BCRA", "tenant_default", store=False)
-        print(f"Crawled {len(results)} results")
+        import sys
+        print(f"Crawled {len(results)} results", file=sys.stderr)
     asyncio.run(main())
