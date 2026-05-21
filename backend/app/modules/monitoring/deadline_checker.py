@@ -7,7 +7,10 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone, timedelta
 
+import structlog
+
 logger = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 THRESHOLDS = [
     (1,  "critical"),
@@ -82,19 +85,41 @@ async def check_deadlines(tenant_id: str = "polkorp") -> dict:
                     )
                     updated += 1
                 else:
+                    obligation_title = ob.description[:200] if ob.description else "Unnamed obligation"
                     alert = DeadlineAlert(
                         tenant_id=tenant_id,
                         obligation_id=str(ob.id),
                         regulation_code=reg.code,
                         regulator=reg.regulator,
                         country=reg.country,
-                        title=ob.description[:200] if ob.description else "Unnamed obligation",
+                        title=obligation_title,
                         deadline=deadline_dt,
                         days_remaining=days_remaining,
                         severity=severity,
                     )
                     session.add(alert)
+                    await session.flush()  # flush to get alert.id before commit
                     created += 1
+
+                    # Auto-trigger a remediation workflow for new critical/high alerts
+                    if severity in (AlertSeverity.CRITICAL.value, AlertSeverity.HIGH.value):
+                        try:
+                            # local import to avoid circular dependency
+                            from app.modules.workflows.engine import get_workflow_engine
+                            await get_workflow_engine().create_remediation_workflow(
+                                tenant_id=tenant_id,
+                                title=f"Remediation: deadline alert — {obligation_title}",
+                                trigger_source=f"deadline_alert:{str(alert.id)}",
+                                severity=severity,
+                            )
+                            log.info(
+                                "workflow_auto_created",
+                                alert_id=str(alert.id),
+                                severity=severity,
+                                tenant_id=tenant_id,
+                            )
+                        except Exception as exc:
+                            log.warning("workflow_auto_create_failed", error=str(exc))
 
             await session.commit()
     except Exception as e:
