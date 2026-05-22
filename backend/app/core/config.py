@@ -16,7 +16,7 @@ import json
 from functools import lru_cache
 from typing import Any, Annotated
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic.functional_validators import BeforeValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
