@@ -14,10 +14,31 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any
+from typing import Any, Annotated
 
-from pydantic import field_validator, Field
+from pydantic import Field
+from pydantic.functional_validators import BeforeValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _parse_cors(v: Any) -> list[str]:
+    if not v:
+        return ["http://localhost:3000"]
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if x]
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            return ["http://localhost:3000"]
+        if v.startswith("["):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed]
+            except json.JSONDecodeError:
+                pass
+        return [o.strip() for o in v.split(",") if o.strip()]
+    return ["http://localhost:3000"]
 
 
 class Settings(BaseSettings):
@@ -38,27 +59,7 @@ class Settings(BaseSettings):
     # ── API ────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: list[str] = ["http://localhost:3000"]
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: Any) -> list[str]:
-        """Accept JSON array, CSV string, or list. Robust to common .env mistakes."""
-        if v is None or v == "":
-            return ["http://localhost:3000"]
-        if isinstance(v, list):
-            return v
-        if isinstance(v, str):
-            v = v.strip()
-            if v.startswith("["):
-                try:
-                    parsed = json.loads(v)
-                    if isinstance(parsed, list):
-                        return [str(x).strip() for x in parsed]
-                except json.JSONDecodeError:
-                    pass
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return list(v)
+    cors_origins: Annotated[list[str], BeforeValidator(_parse_cors)] = ["http://localhost:3000"]
 
     # ── Database ───────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://complianceos:complianceos@db:5432/complianceos"
