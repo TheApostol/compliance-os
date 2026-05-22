@@ -1069,6 +1069,24 @@ export default function Home() {
   // ── Mobile sidebar state ───────────────────────────────────────────────────
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // ── Home dashboard live stats ──────────────────────────────────────────────
+  const [dashHealth, setDashHealth] = useState<any>(null)
+  const [dashRegCount, setDashRegCount] = useState<number | null>(null)
+  const [dashTicketCount, setDashTicketCount] = useState<number | null>(null)
+  const [dashAuditCount, setDashAuditCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (active === 'home') {
+      fetch(`${API_URL}/api/v1/health`).then(r => r.json()).then(setDashHealth).catch(() => {})
+      fetch(`${API_URL}/api/v1/regulations`, { headers: authHeaders(token) })
+        .then(r => r.json()).then(d => setDashRegCount(d.total ?? (d.regulations?.length ?? 0))).catch(() => {})
+      fetch(`${API_URL}/api/v1/tickets`, { headers: authHeaders(token) })
+        .then(r => r.json()).then(d => setDashTicketCount(Array.isArray(d) ? d.length : 0)).catch(() => {})
+      fetch(`${API_URL}/api/v1/audit?limit=1`, { headers: authHeaders(token) })
+        .then(r => r.json()).then(d => setDashAuditCount(d.total ?? null)).catch(() => {})
+    }
+  }, [active, token])
+
   // ── M9 Ticketing state ─────────────────────────────────────────────────────
   const [tickets, setTickets] = useState<any[]>([])
   const [ticketTitle, setTicketTitle] = useState('')
@@ -3256,54 +3274,73 @@ export default function Home() {
           {/* ── Home Dashboard ───────────────────────────────────────────── */}
           {active === 'home' && (
             <div className="space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold mb-1">Welcome to ComplianceOS</h2>
-                <p className="text-sm text-zinc-500">AI-native regulatory infrastructure for LATAM regulated industries.</p>
-              </div>
-
-              <div className="grid grid-cols-4 gap-4">
-                <div className="border border-zinc-800 rounded-lg p-4 text-center">
-                  <div className="text-3xl font-mono font-bold mb-1">9</div>
-                  <div className="text-xs text-zinc-500">Modules Active</div>
-                </div>
-                <div className="border border-zinc-800 rounded-lg p-4 text-center">
-                  <div className="text-sm font-medium text-green-400 mb-1">Live</div>
-                  <div className="text-xs text-zinc-500">Backend Status</div>
-                </div>
-                <div className="border border-zinc-800 rounded-lg p-4 text-center">
-                  <div className="text-sm font-mono font-medium mb-1">polkorp</div>
-                  <div className="text-xs text-zinc-500">Tenant</div>
-                </div>
-                <div className="border border-zinc-800 rounded-lg p-4 text-center">
-                  <div className="text-sm font-medium mb-1">Production</div>
-                  <div className="text-xs text-zinc-500">Environment</div>
+              {/* Header */}
+              <div className={`rounded-xl border p-5 md:p-6 ${industryCfg.accentClass}`}>
+                <div className="flex items-start justify-between flex-wrap gap-3">
+                  <div>
+                    <h2 className="text-xl md:text-2xl font-bold mb-1">ComplianceOS</h2>
+                    <p className="text-sm text-zinc-300 font-medium">{industryCfg.name}</p>
+                    <p className="text-xs text-zinc-500 mt-1">{industryCfg.regulators}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${dashHealth ? 'bg-green-900/50 text-green-400 border border-green-800' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${dashHealth ? 'bg-green-400' : 'bg-zinc-500'}`} />
+                      {dashHealth ? 'Systems Online' : 'Connecting...'}
+                    </div>
+                    <div className="text-xs text-zinc-600 mt-1.5">tenant: polkorp</div>
+                  </div>
                 </div>
               </div>
 
+              {/* Live stat tiles */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <div className="border border-zinc-800 rounded-lg p-4">
+                  <div className="text-2xl md:text-3xl font-mono font-bold mb-1">
+                    {industryCfg.modules.length - 1}
+                  </div>
+                  <div className="text-xs text-zinc-500">Active Modules</div>
+                </div>
+                <div className="border border-zinc-800 rounded-lg p-4">
+                  <div className="text-2xl md:text-3xl font-mono font-bold mb-1 text-blue-400">
+                    {dashRegCount ?? <span className="text-zinc-600 text-lg">—</span>}
+                  </div>
+                  <div className="text-xs text-zinc-500">Regulations Indexed</div>
+                </div>
+                <div className="border border-zinc-800 rounded-lg p-4">
+                  <div className="text-2xl md:text-3xl font-mono font-bold mb-1 text-yellow-400">
+                    {dashTicketCount ?? <span className="text-zinc-600 text-lg">—</span>}
+                  </div>
+                  <div className="text-xs text-zinc-500">Open Tickets</div>
+                </div>
+                <div className="border border-zinc-800 rounded-lg p-4">
+                  <div className="text-2xl md:text-3xl font-mono font-bold mb-1 text-zinc-300">
+                    {dashAuditCount ?? <span className="text-zinc-600 text-lg">—</span>}
+                  </div>
+                  <div className="text-xs text-zinc-500">Audit Events</div>
+                </div>
+              </div>
+
+              {/* Module quick-access — industry filtered */}
               <div>
-                <div className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Quick Links</div>
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
-                    { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
-                    { id: 'kyc', label: 'M3 — KYC/AML', desc: 'Screening + EDD' },
-                    { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Anomalies + drift' },
-                    { id: 'governance', label: 'M5 — AI Governance', desc: 'Audit + safety' },
-                    { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction' },
-                    { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
-                    { id: 'predictive', label: 'M8 — Predictive', desc: 'Risk & market simulation' },
-                    { id: 'ticketing', label: 'M9 — Ticketing', desc: 'Compliance tickets' },
-                  ].map(m => (
+                <div className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Modules</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {industryCfg.modules.filter(m => m.id !== 'home').map(m => (
                     <button
                       key={m.id}
-                      onClick={() => setActive(m.id as Module)}
-                      className="border border-zinc-800 rounded-lg p-4 text-left hover:bg-zinc-900 transition"
+                      onClick={() => setActive(m.id)}
+                      className="border border-zinc-800 rounded-lg p-4 text-left hover:bg-zinc-900 transition group"
                     >
-                      <div className="text-sm font-medium mb-1">{m.label}</div>
+                      <div className="text-sm font-medium mb-1 group-hover:text-white transition">{m.label}</div>
                       <div className="text-xs text-zinc-500">{m.desc}</div>
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* AI context pill */}
+              <div className="border border-zinc-800 rounded-lg p-4 text-xs text-zinc-500">
+                <span className="text-zinc-400 font-medium">AI context: </span>
+                {industryCfg.aiContext}
               </div>
             </div>
           )}
