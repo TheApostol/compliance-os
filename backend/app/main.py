@@ -61,9 +61,8 @@ async def _background_init():
     except Exception as e:
         logger.warning("Qdrant not available at startup: %s", e)
 
-    # Create default admin user if none exists
+    # Upsert admin user from env vars on every startup
     try:
-        import os
         from app.db.base import AsyncSessionLocal
         from app.db.models import User, Tenant, UserRole
         from app.core.auth import hash_password
@@ -73,34 +72,41 @@ async def _background_init():
         admin_password = os.environ.get("ADMIN_PASSWORD", "ComplianceOS2026!")
 
         async with AsyncSessionLocal() as session:
-            existing = (await session.execute(select(User).limit(1))).scalar_one_or_none()
-            if not existing:
-                tenant = (await session.execute(
-                    select(Tenant).where(Tenant.slug == settings.default_tenant_id)
-                )).scalar_one_or_none()
-                if not tenant:
-                    tenant = Tenant(
-                        slug=settings.default_tenant_id,
-                        name=settings.default_tenant_name,
-                        sector="multi",
-                        jurisdictions=["AR", "BR", "MX"],
-                        data_residency_policy={"ai_providers_allowed": ["nvidia", "anthropic"]},
-                    )
-                    session.add(tenant)
-                    await session.flush()
+            # Ensure tenant exists
+            tenant = (await session.execute(
+                select(Tenant).where(Tenant.slug == settings.default_tenant_id)
+            )).scalar_one_or_none()
+            if not tenant:
+                tenant = Tenant(
+                    slug=settings.default_tenant_id,
+                    name=settings.default_tenant_name,
+                    sector="multi",
+                    jurisdictions=["AR", "BR", "MX"],
+                    data_residency_policy={"ai_providers_allowed": ["nvidia", "anthropic"]},
+                )
+                session.add(tenant)
+                await session.flush()
 
-                user = User(
+            # Upsert admin user
+            user = (await session.execute(
+                select(User).where(User.email == admin_email)
+            )).scalar_one_or_none()
+            if user:
+                user.hashed_password = hash_password(admin_password)
+                user.role = UserRole.ADMIN
+                user.is_active = True
+            else:
+                session.add(User(
                     email=admin_email,
                     hashed_password=hash_password(admin_password),
                     role=UserRole.ADMIN,
                     tenant_id=tenant.slug,
                     is_active=True,
-                )
-                session.add(user)
-                await session.commit()
-                logger.info("Default admin user created: %s", admin_email)
+                ))
+            await session.commit()
+            logger.info("Admin user synced: %s", admin_email)
     except Exception as e:
-        logger.warning("Could not create default admin user: %s", e)
+        logger.warning("Could not sync admin user: %s", e)
 
 
 @asynccontextmanager
