@@ -3019,6 +3019,346 @@ export default function Home() {
               </div>
             </div>
           )}
+          {/* ── Home Dashboard ───────────────────────────────────────────── */}
+          {active === 'home' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold mb-1">Welcome to ComplianceOS</h2>
+                <p className="text-sm text-zinc-500">AI-native regulatory infrastructure for LATAM regulated industries.</p>
+              </div>
+
+              <div className="grid grid-cols-4 gap-4">
+                <div className="border border-zinc-800 rounded-lg p-4 text-center">
+                  <div className="text-3xl font-mono font-bold mb-1">9</div>
+                  <div className="text-xs text-zinc-500">Modules Active</div>
+                </div>
+                <div className="border border-zinc-800 rounded-lg p-4 text-center">
+                  <div className="text-sm font-medium text-green-400 mb-1">Live</div>
+                  <div className="text-xs text-zinc-500">Backend Status</div>
+                </div>
+                <div className="border border-zinc-800 rounded-lg p-4 text-center">
+                  <div className="text-sm font-mono font-medium mb-1">polkorp</div>
+                  <div className="text-xs text-zinc-500">Tenant</div>
+                </div>
+                <div className="border border-zinc-800 rounded-lg p-4 text-center">
+                  <div className="text-sm font-medium mb-1">Production</div>
+                  <div className="text-xs text-zinc-500">Environment</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Quick Links</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+                    { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+                    { id: 'kyc', label: 'M3 — KYC/AML', desc: 'Screening + EDD' },
+                    { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Anomalies + drift' },
+                    { id: 'governance', label: 'M5 — AI Governance', desc: 'Audit + safety' },
+                    { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction' },
+                    { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
+                    { id: 'predictive', label: 'M8 — Predictive', desc: 'Risk & market simulation' },
+                    { id: 'ticketing', label: 'M9 — Ticketing', desc: 'Compliance tickets' },
+                  ].map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => setActive(m.id as Module)}
+                      className="border border-zinc-800 rounded-lg p-4 text-left hover:bg-zinc-900 transition"
+                    >
+                      <div className="text-sm font-medium mb-1">{m.label}</div>
+                      <div className="text-xs text-zinc-500">{m.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── M7 Workflows ─────────────────────────────────────────────────── */}
+          {active === 'workflows' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">M7 — Remediation Workflows</h2>
+                <p className="text-sm text-zinc-500">Create and track AI-driven compliance remediation workflows.</p>
+              </div>
+
+              <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Create Workflow</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Workflow title</label>
+                  <input
+                    type="text"
+                    value={workflowTitle}
+                    onChange={e => setWorkflowTitle(e.target.value)}
+                    placeholder="e.g. Remediate UIF Reporting Gap"
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Trigger source</label>
+                  <input
+                    type="text"
+                    value={workflowTrigger}
+                    onChange={e => setWorkflowTrigger(e.target.value)}
+                    placeholder="e.g. M4 anomaly detection, manual review"
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Severity</label>
+                  <select
+                    value={workflowSeverity}
+                    onChange={e => setWorkflowSeverity(e.target.value)}
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={createWorkflow}
+                  disabled={workflowLoading || !workflowTitle.trim() || !workflowTrigger.trim()}
+                  className="px-4 py-2 bg-zinc-100 text-zinc-900 rounded text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {workflowLoading ? 'Creating...' : 'Create Workflow'}
+                </button>
+
+                {workflowResult && (
+                  <div className="space-y-2">
+                    {(workflowResult.error || workflowResult.detail) && (
+                      <div className="p-3 bg-red-950 border border-red-900 rounded text-sm text-red-200">
+                        Error: {workflowResult.error ?? workflowResult.detail}
+                      </div>
+                    )}
+                    {!workflowResult.error && !workflowResult.detail && (
+                      <pre className="bg-zinc-900 border border-zinc-800 rounded p-3 text-xs overflow-auto">{JSON.stringify(workflowResult, null, 2)}</pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── M8 Predictive ────────────────────────────────────────────────── */}
+          {active === 'predictive' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">M8 — Predictive Risk</h2>
+                <p className="text-sm text-zinc-500">Jurisdiction risk scoring and market entry simulation.</p>
+              </div>
+
+              <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wider text-zinc-500">Jurisdiction Risk Scores</div>
+                  <button
+                    onClick={fetchJurisdictionRisks}
+                    disabled={jurisdictionRisksLoading}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                  >
+                    {jurisdictionRisksLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {jurisdictionRisksLoading && !jurisdictionRisks && (
+                  <div className="text-xs text-zinc-600 py-4 text-center">Loading...</div>
+                )}
+
+                {jurisdictionRisks && !jurisdictionRisks.error && (
+                  <pre className="bg-zinc-900 border border-zinc-800 rounded p-3 text-xs overflow-auto">{JSON.stringify(jurisdictionRisks, null, 2)}</pre>
+                )}
+
+                {jurisdictionRisks?.error && (
+                  <div className="p-3 bg-red-950 border border-red-900 rounded text-sm text-red-200">
+                    Error: {jurisdictionRisks.error}
+                  </div>
+                )}
+              </div>
+
+              <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Market Entry Simulation</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Business model</label>
+                  <input
+                    type="text"
+                    value={simBusinessModel}
+                    onChange={e => setSimBusinessModel(e.target.value)}
+                    placeholder="e.g. Digital payments PSP, crypto exchange"
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Countries (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={simCountries}
+                    onChange={e => setSimCountries(e.target.value)}
+                    placeholder="AR,BR,MX"
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm font-mono focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <button
+                  onClick={simulateMarketEntry}
+                  disabled={simLoading || !simBusinessModel.trim()}
+                  className="px-4 py-2 bg-zinc-100 text-zinc-900 rounded text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {simLoading ? 'Simulating...' : 'Simulate Market Entry'}
+                </button>
+
+                {simResult && (
+                  <div className="space-y-2">
+                    {(simResult.error || simResult.detail) && (
+                      <div className="p-3 bg-red-950 border border-red-900 rounded text-sm text-red-200">
+                        Error: {simResult.error ?? simResult.detail}
+                      </div>
+                    )}
+                    {!simResult.error && !simResult.detail && (
+                      <pre className="bg-zinc-900 border border-zinc-800 rounded p-3 text-xs overflow-auto">{JSON.stringify(simResult, null, 2)}</pre>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── M9 Ticketing ─────────────────────────────────────────────────── */}
+          {active === 'ticketing' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold mb-2">M9 — Compliance Ticketing</h2>
+                <p className="text-sm text-zinc-500">Create and manage compliance tickets. Track status from open to resolved.</p>
+              </div>
+
+              <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">Create Ticket</div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={ticketTitle}
+                    onChange={e => setTicketTitle(e.target.value)}
+                    placeholder="e.g. Missing UIF SAR for period 2026-04"
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Description (optional)</label>
+                  <textarea
+                    value={ticketDesc}
+                    onChange={e => setTicketDesc(e.target.value)}
+                    placeholder="Additional context..."
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm min-h-20 focus:outline-none focus:border-zinc-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-zinc-500 block mb-1">Priority</label>
+                  <select
+                    value={ticketPriority}
+                    onChange={e => setTicketPriority(e.target.value)}
+                    className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+
+                <button
+                  onClick={createTicket}
+                  disabled={ticketLoading || !ticketTitle.trim()}
+                  className="px-4 py-2 bg-zinc-100 text-zinc-900 rounded text-sm font-medium hover:bg-white disabled:opacity-50"
+                >
+                  {ticketLoading ? 'Creating...' : 'Create Ticket'}
+                </button>
+              </div>
+
+              <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase tracking-wider text-zinc-500">All Tickets</div>
+                  <button
+                    onClick={fetchTickets}
+                    disabled={ticketsLoading}
+                    className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-50"
+                  >
+                    {ticketsLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+
+                {ticketsLoading && tickets.length === 0 ? (
+                  <SkeletonTable rows={4} cols={5} />
+                ) : tickets.length === 0 ? (
+                  <div className="text-center py-8 text-zinc-600 text-sm border border-dashed border-zinc-800 rounded">
+                    No tickets yet. Create one above.
+                  </div>
+                ) : (
+                  <div className="border border-zinc-700 rounded overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-700 bg-zinc-900">
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Title</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Priority</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Status</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium">Created</th>
+                          <th className="text-left px-4 py-2.5 text-xs text-zinc-500 font-medium"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tickets.map((t: any, i: number) => {
+                          const prioColor =
+                            t.priority === 'critical' ? 'bg-red-950 text-red-400 border-red-900' :
+                            t.priority === 'high' ? 'bg-orange-950 text-orange-400 border-orange-900' :
+                            t.priority === 'medium' ? 'bg-yellow-950 text-yellow-400 border-yellow-900' :
+                            'bg-zinc-800 text-zinc-400 border-zinc-700'
+                          const statusColor =
+                            t.status === 'resolved' || t.status === 'closed' ? 'text-green-400' :
+                            t.status === 'in_progress' ? 'text-yellow-400' : 'text-zinc-400'
+                          return (
+                            <tr key={i} className="border-b border-zinc-800 last:border-0 hover:bg-zinc-900">
+                              <td className="px-4 py-2.5 text-xs text-zinc-200 max-w-xs truncate">{t.title ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-xs">
+                                <span className={`px-1.5 py-0.5 rounded border text-xs ${prioColor}`}>{t.priority ?? '—'}</span>
+                              </td>
+                              <td className={`px-4 py-2.5 text-xs font-mono ${statusColor}`}>{t.status ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-xs text-zinc-500">
+                                {t.created_at ? new Date(t.created_at).toLocaleDateString() : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs">
+                                {t.status !== 'resolved' && t.status !== 'closed' && (
+                                  <select
+                                    defaultValue=""
+                                    onChange={e => { if (e.target.value) updateTicketStatus(t.id, e.target.value) }}
+                                    className="p-1 bg-zinc-900 border border-zinc-700 rounded text-xs focus:outline-none"
+                                  >
+                                    <option value="" disabled>Update</option>
+                                    <option value="in_progress">In Progress</option>
+                                    <option value="resolved">Resolved</option>
+                                    <option value="closed">Closed</option>
+                                  </select>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
         </section>
       </div>
     </main>

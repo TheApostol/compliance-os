@@ -142,6 +142,32 @@ class MapCrossBorderRequest(BaseModel):
     countries: list[str] = Field(..., examples=[["AR", "BR", "MX", "CO", "CL"]])
 
 
+@router.get("/regulations")
+async def list_regulations(
+    country: str | None = None,
+    regulator: str | None = None,
+    limit: int = 100,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    from app.db.base import AsyncSessionLocal
+    from app.db.models import Regulation
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as session:
+        stmt = select(Regulation).where(
+            (Regulation.tenant_id == current_user.tenant_id) | (Regulation.tenant_id.is_(None))
+        ).order_by(Regulation.published_at.desc()).limit(min(limit, 200))
+        if country:
+            stmt = stmt.where(Regulation.country == country)
+        if regulator:
+            stmt = stmt.where(Regulation.regulator == regulator)
+        regs = (await session.execute(stmt)).scalars().all()
+    return {"regulations": [
+        {"id": str(r.id), "code": r.code, "title": r.title, "country": r.country,
+         "regulator": r.regulator, "published_at": r.published_at.isoformat() if r.published_at else None}
+        for r in regs
+    ], "total": len(regs)}
+
+
 @router.post("/regulatory/parse")
 @limiter.limit("30/minute")
 async def parse_regulation(
