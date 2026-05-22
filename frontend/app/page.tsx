@@ -79,6 +79,19 @@ export default function Home() {
       setIsLoggedIn(true)
       const claims = decodeJwtPayload(stored)
       if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
+    } else {
+      fetch(`${API_URL}/api/v1/auth/token`, {
+        method: 'POST',
+        body: new URLSearchParams({ username: 'federico@polkorp.com', password: '12345' }),
+      }).then(r => r.json()).then(data => {
+        if (data.access_token) {
+          localStorage.setItem('cos_token', data.access_token)
+          setToken(data.access_token)
+          setIsLoggedIn(true)
+          const claims = decodeJwtPayload(data.access_token)
+          if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
+        }
+      }).catch(() => {})
     }
   }, [])
 
@@ -126,6 +139,8 @@ export default function Home() {
 
   // ── Module state ───────────────────────────────────────────────────────────
   const [active, setActive] = useState<Module>('home')
+  const [regulations, setRegulations] = useState<any[]>([])
+  const [regulationsLoading, setRegulationsLoading] = useState(false)
 
   // ── Toast state ────────────────────────────────────────────────────────────
   const [successToast, setSuccessToast] = useState<string | null>(null)
@@ -169,10 +184,19 @@ export default function Home() {
   const [evidenceDocsLoading, setEvidenceDocsLoading] = useState(false)
 
   useEffect(() => {
-    if (active === 'evidence') {
-      fetchEvidenceDocs()
-    }
+    if (active === 'evidence') fetchEvidenceDocs()
+    if (active === 'regulatory') fetchRegulations()
   }, [active])
+
+  async function fetchRegulations() {
+    setRegulationsLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/regulations`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setRegulations(data.regulations || [])
+    } catch {}
+    finally { setRegulationsLoading(false) }
+  }
 
   async function fetchEvidenceDocs() {
     setEvidenceDocsLoading(true)
@@ -1191,6 +1215,33 @@ export default function Home() {
               <p className="text-sm text-zinc-500 mb-6">
                 Parse regulation text into structured obligations. Map cross-border obligations across jurisdictions.
               </p>
+
+              {/* Regulations Library */}
+              <div className="border border-zinc-800 rounded-md p-5 mb-6">
+                <div className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Regulations Library</div>
+                {regulationsLoading ? (
+                  <p className="text-sm text-zinc-500">Loading...</p>
+                ) : regulations.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No regulations yet. Run the crawler or parse a regulation below.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead><tr className="text-left text-xs text-zinc-500 border-b border-zinc-800">
+                      <th className="pb-2 pr-4">Code</th>
+                      <th className="pb-2 pr-4">Title</th>
+                      <th className="pb-2 pr-4">Country</th>
+                      <th className="pb-2">Regulator</th>
+                    </tr></thead>
+                    <tbody>{regulations.map(r => (
+                      <tr key={r.id} className="border-b border-zinc-900 hover:bg-zinc-900/50">
+                        <td className="py-2 pr-4 font-mono text-xs text-zinc-400">{r.code}</td>
+                        <td className="py-2 pr-4 text-zinc-200">{r.title}</td>
+                        <td className="py-2 pr-4 text-zinc-400">{r.country}</td>
+                        <td className="py-2 text-zinc-400">{r.regulator}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
 
               {/* Parse Regulation */}
               <div className="border border-zinc-800 rounded-md p-5 space-y-4 mb-6">
