@@ -77,11 +77,12 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ role: string } | null>(null)
 
-  // ── Vertical selection (session-scoped: picker shows on every new login) ──
+  // ── Vertical selection — pure state, no storage restore ──────────────────
+  // Picker always shows on load/login. Selecting persists only for this tab.
   const [selectedVertical, setSelectedVertical] = useState<Vertical | null>(null)
+  const [backendOk, setBackendOk] = useState<boolean | null>(null)
 
   function selectVertical(v: Vertical) {
-    sessionStorage.setItem('cos_vertical', v)
     setSelectedVertical(v)
   }
 
@@ -93,17 +94,18 @@ export default function Home() {
   }
 
   useEffect(() => {
+    // Check backend reachability on load
+    fetch(`${API_URL}/api/v1/health`)
+      .then(r => setBackendOk(r.ok))
+      .catch(() => setBackendOk(false))
+
     const stored = localStorage.getItem('cos_token')
     if (stored) {
       setToken(stored)
       setIsLoggedIn(true)
       const claims = decodeJwtPayload(stored)
       if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
-    }
-    // sessionStorage: survives tab refresh but not a new tab/session → picker shows on fresh login
-    const storedVertical = sessionStorage.getItem('cos_vertical') as Vertical | null
-    if (storedVertical && VERTICALS.find(v => v.id === storedVertical)) {
-      setSelectedVertical(storedVertical)
+      // Vertical intentionally NOT restored — picker always shows until user picks
     }
   }, [])
 
@@ -142,7 +144,6 @@ export default function Home() {
 
   function logout() {
     localStorage.removeItem('cos_token')
-    sessionStorage.removeItem('cos_vertical')
     setToken(null)
     setIsLoggedIn(false)
     setCurrentUser(null)
@@ -893,6 +894,19 @@ export default function Home() {
     return (
       <main className="min-h-screen flex items-center justify-center">
         <div className="w-full max-w-sm">
+          {/* Backend status indicator */}
+          <div className={`mb-4 px-3 py-2 rounded-md text-xs flex items-center gap-2 ${
+            backendOk === null
+              ? 'bg-zinc-900 border border-zinc-800 text-zinc-500'
+              : backendOk
+              ? 'bg-green-950 border border-green-900 text-green-400'
+              : 'bg-red-950 border border-red-900 text-red-300'
+          }`}>
+            <span>{backendOk === null ? '⏳' : backendOk ? '✓' : '✗'}</span>
+            <span className="font-mono truncate">{API_URL}</span>
+            {backendOk === false && <span className="ml-auto shrink-0">unreachable</span>}
+          </div>
+
           <div className="mb-8 text-center">
             <h1 className="text-2xl font-bold tracking-tight">ComplianceOS</h1>
             <p className="text-sm text-zinc-500 mt-1">AI-native compliance for LATAM regulated industries</p>
@@ -927,14 +941,11 @@ export default function Home() {
             )}
             <button
               onClick={login}
-              disabled={loginLoading}
+              disabled={loginLoading || backendOk === false}
               className="w-full py-2.5 bg-zinc-100 text-zinc-900 rounded-md text-sm font-medium hover:bg-white disabled:opacity-50"
             >
-              {loginLoading ? 'Signing in...' : 'Sign in'}
+              {loginLoading ? 'Signing in...' : backendOk === false ? 'Backend unreachable' : 'Sign in'}
             </button>
-            <p className="text-xs text-zinc-600 text-center">
-              Dev fallback: <span className="font-mono text-zinc-500">X-Tenant-Id: polkorp</span> still active
-            </p>
           </div>
         </div>
       </main>
@@ -969,14 +980,8 @@ export default function Home() {
           ))}
         </div>
         <button
-          onClick={() => { sessionStorage.removeItem('cos_vertical'); setSelectedVertical(null) }}
-          className="mt-8 text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-800 rounded px-3 py-1.5"
-        >
-          ← Back
-        </button>
-        <button
           onClick={logout}
-          className="mt-3 text-xs text-zinc-600 hover:text-zinc-400 underline"
+          className="mt-10 text-xs text-zinc-600 hover:text-zinc-400 underline"
         >
           Sign out
         </button>
@@ -997,7 +1002,7 @@ export default function Home() {
                 <p className="text-sm mt-0.5 flex items-center gap-2">
                   <span style={{ color: v.color }} className="font-medium">{v.icon} {v.label}</span>
                   <button
-                    onClick={() => { sessionStorage.removeItem('cos_vertical'); setSelectedVertical(null) }}
+                    onClick={() => setSelectedVertical(null)}
                     className="text-zinc-600 hover:text-zinc-400 text-xs underline"
                   >
                     change
