@@ -625,12 +625,12 @@ async def rag_reindex(
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/crawler/events")
-async def crawler_events(request: Request, current_user: CurrentUser = Depends(get_current_user)):
-    """SSE stream for crawler completion events scoped to the current tenant."""
+async def crawler_events(request: Request, tenant_id: str = "polkorp"):
+    """SSE stream for crawler completion events scoped to tenant."""
     from sse_starlette.sse import EventSourceResponse
     from app.services.event_bus import subscribe
 
-    channel = f"crawler:{current_user.tenant_id}"
+    channel = f"crawler:{tenant_id}"
 
     async def generator():
         # Send an initial connected event

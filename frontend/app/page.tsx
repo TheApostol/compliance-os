@@ -82,7 +82,7 @@ export default function Home() {
     } else {
       fetch(`${API_URL}/api/v1/auth/token`, {
         method: 'POST',
-        body: new URLSearchParams({ username: 'federico@polkorp.com', password: '12345' }),
+        body: new URLSearchParams({ username: 'admin@complianceos.io', password: 'ComplianceOS2026!' }),
       }).then(r => r.json()).then(data => {
         if (data.access_token) {
           localStorage.setItem('cos_token', data.access_token)
