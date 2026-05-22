@@ -5,6 +5,109 @@ import { useState, useEffect } from 'react'
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search' | 'score' | 'alerts' | 'webhooks' | 'home' | 'workflows' | 'predictive' | 'ticketing'
+type Industry = 'financial' | 'insurance' | 'healthcare' | 'corporate'
+
+interface IndustryModule { id: Module; label: string; desc: string }
+interface IndustryConfig {
+  name: string; tagline: string; color: string; accentClass: string
+  regulators: string; aiContext: string; ticketCategories: string[]
+  modules: IndustryModule[]
+}
+
+const INDUSTRY_CONFIGS: Record<Industry, IndustryConfig> = {
+  financial: {
+    name: 'Financial Services', tagline: 'Banks, fintechs, payment processors, asset managers',
+    color: 'blue', accentClass: 'border-blue-700 bg-blue-950/30',
+    regulators: 'BCRA · UIF · BACEN · CMF · FATF',
+    aiContext: 'Financial services company in LATAM subject to BCRA, UIF, BACEN, CMF, and FATF AML/CFT regulations.',
+    ticketCategories: ['AML Alert', 'KYC Exception', 'Regulatory Breach', 'Audit Finding', 'Risk Escalation', 'Suspicious Transaction'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'kyc', label: 'M3 — AML / KYC', desc: 'Screening + EDD + PEP checks' },
+      { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Transaction anomalies + drift' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'Model audit + safety' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
+      { id: 'predictive', label: 'M8 — Predictive Risk', desc: 'Risk & market simulation' },
+      { id: 'ticketing', label: 'M9 — Incident Mgmt', desc: 'AML alerts & regulatory incidents' },
+      { id: 'graph', label: 'Graph', desc: 'Compliance relationship graph' },
+      { id: 'crawler', label: 'Crawler', desc: 'BCRA + UIF live feed' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Deadline + compliance alerts' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+  insurance: {
+    name: 'Insurance', tagline: 'Insurers, brokers, reinsurers',
+    color: 'emerald', accentClass: 'border-emerald-700 bg-emerald-950/30',
+    regulators: 'SSN · SUSEP · CMF · CNSF',
+    aiContext: 'Insurance company in LATAM subject to SSN (Argentina), SUSEP (Brazil), CMF (Chile), and CNSF (Mexico) solvency and market conduct regulations.',
+    ticketCategories: ['Policy Compliance', 'Claims Dispute', 'Regulatory Filing', 'Solvency Alert', 'Fraud Investigation', 'Actuarial Review'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'monitoring', label: 'M4 — Solvency Monitor', desc: 'Capital & solvency drift' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'Model risk + audit' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Claims & compliance workflows' },
+      { id: 'predictive', label: 'M8 — Actuarial Risk', desc: 'Risk & exposure simulation' },
+      { id: 'ticketing', label: 'M9 — Claims & Compliance', desc: 'Policy incidents & filings' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Regulatory deadline alerts' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+  healthcare: {
+    name: 'Healthcare & Pharma', tagline: 'Hospitals, clinical labs, pharmaceutical companies',
+    color: 'rose', accentClass: 'border-rose-700 bg-rose-950/30',
+    regulators: 'ANMAT · ANVISA · COFEPRIS · LGPD · PDPA',
+    aiContext: 'Healthcare/pharma company in LATAM subject to ANMAT (Argentina), ANVISA (Brazil), COFEPRIS (Mexico), and LGPD/PDPA data privacy regulations.',
+    ticketCategories: ['Adverse Event', 'Safety Report', 'Regulatory Filing', 'Privacy Incident', 'Quality Deviation', 'Clinical Protocol Deviation'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'monitoring', label: 'M4 — Pharmacovigilance', desc: 'Safety signals + adverse events' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'Clinical AI audit + safety' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Safety & approval workflows' },
+      { id: 'predictive', label: 'M8 — Risk Simulation', desc: 'Regulatory risk & market access' },
+      { id: 'ticketing', label: 'M9 — Safety Reports', desc: 'Adverse events & safety filings' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Safety signals + deadlines' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+  corporate: {
+    name: 'Corporate / General', tagline: 'Any regulated company operating in LATAM',
+    color: 'zinc', accentClass: 'border-zinc-600 bg-zinc-800/30',
+    regulators: 'LGPD · PDPA · Labor · Environmental · Tax',
+    aiContext: 'Corporate entity in LATAM subject to labor, environmental, data privacy (LGPD/PDPA), and general corporate compliance regulations.',
+    ticketCategories: ['Legal Notice', 'Environmental Violation', 'Labor Compliance', 'Data Privacy', 'Tax Finding', 'General Compliance'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Compliance drift detection' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'AI risk + audit trail' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'crawler', label: 'Crawler', desc: 'Regulatory live feed' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
+      { id: 'predictive', label: 'M8 — Predictive Risk', desc: 'Risk simulation & forecasting' },
+      { id: 'ticketing', label: 'M9 — Compliance Tickets', desc: 'Findings, violations & actions' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Regulatory deadline alerts' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+}
 
 function SkeletonRow({ cols = 3 }: { cols?: number }) {
   return (
@@ -30,9 +133,10 @@ function SkeletonTable({ rows = 4, cols = 3 }: { rows?: number; cols?: number })
   )
 }
 
-function authHeaders(token: string | null): HeadersInit {
+function authHeaders(token: string | null, industryContext?: string): HeadersInit {
   const h: Record<string, string> = { 'X-Tenant-Id': 'polkorp' }
   if (token) h['Authorization'] = `Bearer ${token}`
+  if (industryContext) h['X-Industry-Context'] = industryContext
   return h
 }
 
@@ -64,6 +168,12 @@ export default function Home() {
   const [loginError, setLoginError] = useState<string | null>(null)
   const [loginLoading, setLoginLoading] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ role: string } | null>(null)
+  const [industry, setIndustry] = useState<Industry | null>(null)
+
+  function selectIndustry(ind: Industry) {
+    localStorage.setItem('cos_industry', ind)
+    setIndustry(ind)
+  }
 
   function decodeJwtPayload(jwt: string): any {
     try {
@@ -92,6 +202,10 @@ export default function Home() {
           if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
         }
       }).catch(() => {})
+    }
+    const storedIndustry = localStorage.getItem('cos_industry') as Industry | null
+    if (storedIndustry && ['financial', 'insurance', 'healthcare', 'corporate'].includes(storedIndustry)) {
+      setIndustry(storedIndustry)
     }
   }, [])
 
@@ -1058,6 +1172,44 @@ export default function Home() {
     )
   }
 
+  // ── Industry picker ────────────────────────────────────────────────────────
+  if (!industry) {
+    const INDUSTRY_CARDS: { id: Industry; icon: string }[] = [
+      { id: 'financial', icon: '🏦' },
+      { id: 'insurance', icon: '🛡️' },
+      { id: 'healthcare', icon: '⚕️' },
+      { id: 'corporate', icon: '🏢' },
+    ]
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center px-8 py-16">
+        <div className="mb-12 text-center">
+          <h1 className="text-3xl font-bold tracking-tight mb-2">ComplianceOS</h1>
+          <p className="text-zinc-400 text-sm">Select your industry to configure modules, AI context, and workflows</p>
+        </div>
+        <div className="grid grid-cols-2 gap-5 w-full max-w-2xl">
+          {INDUSTRY_CARDS.map(({ id, icon }) => {
+            const cfg = INDUSTRY_CONFIGS[id]
+            return (
+              <button
+                key={id}
+                onClick={() => selectIndustry(id)}
+                className={`text-left p-6 rounded-xl border transition hover:brightness-125 ${cfg.accentClass}`}
+              >
+                <div className="text-3xl mb-3">{icon}</div>
+                <div className="text-base font-semibold mb-1">{cfg.name}</div>
+                <div className="text-xs text-zinc-400 mb-3">{cfg.tagline}</div>
+                <div className="text-xs font-mono text-zinc-500">{cfg.regulators}</div>
+                <div className="mt-4 text-xs text-zinc-500">{cfg.modules.length - 1} modules configured</div>
+              </button>
+            )
+          })}
+        </div>
+      </main>
+    )
+  }
+
+  const industryCfg = INDUSTRY_CONFIGS[industry]
+
   // ── Main app ───────────────────────────────────────────────────────────────
   return (
     <main className="min-h-screen">
@@ -1065,9 +1217,15 @@ export default function Home() {
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">ComplianceOS</h1>
-            <p className="text-sm text-zinc-500">AI-native compliance for LATAM regulated industries</p>
+            <p className="text-sm text-zinc-500">{industryCfg.name} · {industryCfg.regulators}</p>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={() => { localStorage.removeItem('cos_industry'); setIndustry(null) }}
+              className="px-3 py-1.5 border border-zinc-800 rounded-md text-xs hover:bg-zinc-900 text-zinc-500"
+            >
+              Change industry
+            </button>
             <div className="text-xs text-zinc-500">
               tenant: <span className="text-zinc-300 font-mono">polkorp</span>
             </div>
@@ -1083,59 +1241,35 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto px-8 py-8 grid grid-cols-12 gap-8">
         <aside className="col-span-3">
-          <h2 className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Modules</h2>
+          <h2 className="text-xs uppercase tracking-wider text-zinc-500 mb-3">{industryCfg.name}</h2>
           <nav className="space-y-1">
-            {[
-              { id: 'home', label: 'Home', desc: 'Overview dashboard' },
-              { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
-              { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
-              { id: 'kyc', label: 'M3 — KYC/AML', desc: 'Screening + EDD' },
-              { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Anomalies + drift' },
-              { id: 'governance', label: 'M5 — AI Governance', desc: 'Audit + safety' },
-              { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
-              { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
-              { id: 'predictive', label: 'M8 — Predictive', desc: 'Risk & market simulation' },
-              { id: 'ticketing', label: 'M9 — Ticketing', desc: 'Compliance tickets' },
-              { id: 'graph', label: 'Graph', desc: 'Compliance relationship graph' },
-              { id: 'crawler', label: 'Crawler', desc: 'BCRA + UIF live feed' },
-              { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
-              { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
-              { id: 'score', label: 'Compliance', desc: 'Entity compliance scores' },
-            ].map(m => (
-              <button
-                key={m.id}
-                onClick={() => setActive(m.id as Module)}
-                className={`w-full text-left p-3 rounded-md transition ${
-                  active === m.id
-                    ? 'bg-zinc-800 border border-zinc-700'
-                    : 'hover:bg-zinc-900'
-                }`}
-              >
-                <div className="text-sm font-medium">{m.label}</div>
-                <div className="text-xs text-zinc-500">{m.desc}</div>
-              </button>
+            {industryCfg.modules.map(m => (
+              m.id === 'alerts' ? (
+                <button
+                  key="alerts"
+                  onClick={() => setActive('alerts')}
+                  className={`w-full text-left p-3 rounded-md transition ${active === 'alerts' ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-900'}`}
+                >
+                  <div className="text-sm font-medium flex items-center">
+                    {m.label}{alertsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">{alertsCount}</span>}
+                  </div>
+                  <div className="text-xs text-zinc-500">{m.desc}</div>
+                </button>
+              ) : (
+                <button
+                  key={m.id}
+                  onClick={() => setActive(m.id)}
+                  className={`w-full text-left p-3 rounded-md transition ${active === m.id ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-900'}`}
+                >
+                  <div className="text-sm font-medium">{m.label}</div>
+                  <div className="text-xs text-zinc-500">{m.desc}</div>
+                </button>
+              )
             ))}
-            <button
-              onClick={() => setActive('alerts')}
-              className={`w-full text-left p-3 rounded-md transition ${
-                active === 'alerts'
-                  ? 'bg-zinc-800 border border-zinc-700'
-                  : 'hover:bg-zinc-900'
-              }`}
-            >
-              <div className="text-sm font-medium flex items-center">
-                Alerts{alertsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-red-500 text-white rounded-full">{alertsCount}</span>}
-              </div>
-              <div className="text-xs text-zinc-500">Deadline + compliance alerts</div>
-            </button>
             {currentUser?.role === 'admin' && (
               <button
                 onClick={() => setActive('admin')}
-                className={`w-full text-left p-3 rounded-md transition ${
-                  active === 'admin'
-                    ? 'bg-zinc-800 border border-zinc-700'
-                    : 'hover:bg-zinc-900'
-                }`}
+                className={`w-full text-left p-3 rounded-md transition ${active === 'admin' ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-900'}`}
               >
                 <div className="text-sm font-medium">Admin</div>
                 <div className="text-xs text-zinc-500">Tenants + API keys</div>
@@ -3284,30 +3418,33 @@ export default function Home() {
           {active === 'ticketing' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold mb-2">M9 — Compliance Ticketing</h2>
-                <p className="text-sm text-zinc-500">Create and manage compliance tickets. Track status from open to resolved.</p>
+                <h2 className="text-xl font-semibold mb-2">{industryCfg.modules.find(m => m.id === 'ticketing')?.label ?? 'M9 — Ticketing'}</h2>
+                <p className="text-sm text-zinc-500">Create and manage compliance incidents for {industryCfg.name}. Track status from open to resolved.</p>
               </div>
 
               <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
-                <div className="text-xs uppercase tracking-wider text-zinc-500">Create Ticket</div>
+                <div className="text-xs uppercase tracking-wider text-zinc-500">New Ticket</div>
 
                 <div>
-                  <label className="text-xs text-zinc-500 block mb-1">Title</label>
-                  <input
-                    type="text"
+                  <label className="text-xs text-zinc-500 block mb-1">Category</label>
+                  <select
                     value={ticketTitle}
                     onChange={e => setTicketTitle(e.target.value)}
-                    placeholder="e.g. Missing UIF SAR for period 2026-04"
                     className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm focus:outline-none focus:border-zinc-600"
-                  />
+                  >
+                    <option value="">— select category —</option>
+                    {industryCfg.ticketCategories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
-                  <label className="text-xs text-zinc-500 block mb-1">Description (optional)</label>
+                  <label className="text-xs text-zinc-500 block mb-1">Description</label>
                   <textarea
                     value={ticketDesc}
                     onChange={e => setTicketDesc(e.target.value)}
-                    placeholder="Additional context..."
+                    placeholder="Describe the compliance issue, regulation reference, or finding..."
                     className="w-full p-2 bg-zinc-900 border border-zinc-800 rounded text-sm min-h-20 focus:outline-none focus:border-zinc-600"
                   />
                 </div>
@@ -3331,7 +3468,7 @@ export default function Home() {
                   disabled={ticketLoading || !ticketTitle.trim()}
                   className="px-4 py-2 bg-zinc-100 text-zinc-900 rounded text-sm font-medium hover:bg-white disabled:opacity-50"
                 >
-                  {ticketLoading ? 'Creating...' : 'Create Ticket'}
+                  {ticketLoading ? 'Creating...' : 'Create'}
                 </button>
               </div>
 
