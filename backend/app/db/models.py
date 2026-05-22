@@ -408,3 +408,39 @@ class DeadlineAlert(Base):
         Index("ix_alerts_tenant_ack", "tenant_id", "is_acknowledged"),
         UniqueConstraint("tenant_id", "obligation_id", name="uq_alert_tenant_obligation"),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# M9 — TICKETING
+# ═══════════════════════════════════════════════════════════════════
+
+class TicketStatus(str, enum.Enum):
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
+class TicketPriority(str, enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(SAEnum(TicketStatus), default=TicketStatus.OPEN)
+    priority = Column(SAEnum(TicketPriority), default=TicketPriority.MEDIUM)
+    created_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_tickets_tenant_status", "tenant_id", "status"),
+    )

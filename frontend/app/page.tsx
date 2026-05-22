@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search' | 'score' | 'alerts' | 'webhooks'
+type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search' | 'score' | 'alerts' | 'webhooks' | 'home' | 'workflows' | 'predictive' | 'ticketing'
 
 function SkeletonRow({ cols = 3 }: { cols?: number }) {
   return (
@@ -125,7 +125,7 @@ export default function Home() {
   }
 
   // ── Module state ───────────────────────────────────────────────────────────
-  const [active, setActive] = useState<Module>('copilot')
+  const [active, setActive] = useState<Module>('home')
 
   // ── Toast state ────────────────────────────────────────────────────────────
   const [successToast, setSuccessToast] = useState<string | null>(null)
@@ -852,6 +852,135 @@ export default function Home() {
     } catch {}
   }
 
+  // ── M7 Workflows state ─────────────────────────────────────────────────────
+  const [workflowTitle, setWorkflowTitle] = useState('')
+  const [workflowTrigger, setWorkflowTrigger] = useState('')
+  const [workflowSeverity, setWorkflowSeverity] = useState('medium')
+  const [workflowResult, setWorkflowResult] = useState<any>(null)
+  const [workflowLoading, setWorkflowLoading] = useState(false)
+
+  async function createWorkflow() {
+    if (!workflowTitle.trim() || !workflowTrigger.trim()) return
+    setWorkflowLoading(true)
+    setWorkflowResult(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/workflow/remediation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ title: workflowTitle, trigger_source: workflowTrigger, severity: workflowSeverity }),
+      })
+      const data = await res.json()
+      setWorkflowResult(data)
+      if (!data.error && !data.detail) showToast('Workflow created.')
+    } catch (e: any) {
+      setWorkflowResult({ error: e.message })
+    } finally {
+      setWorkflowLoading(false)
+    }
+  }
+
+  // ── M8 Predictive state ────────────────────────────────────────────────────
+  const [jurisdictionRisks, setJurisdictionRisks] = useState<any>(null)
+  const [jurisdictionRisksLoading, setJurisdictionRisksLoading] = useState(false)
+  const [simBusinessModel, setSimBusinessModel] = useState('')
+  const [simCountries, setSimCountries] = useState('AR,BR,MX')
+  const [simResult, setSimResult] = useState<any>(null)
+  const [simLoading, setSimLoading] = useState(false)
+
+  useEffect(() => {
+    if (active === 'predictive') {
+      fetchJurisdictionRisks()
+    }
+  }, [active])
+
+  async function fetchJurisdictionRisks() {
+    setJurisdictionRisksLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/predict/jurisdiction-risk`, {
+        headers: authHeaders(token),
+      })
+      const data = await res.json()
+      setJurisdictionRisks(data)
+    } catch (e: any) {
+      setJurisdictionRisks({ error: e.message })
+    } finally {
+      setJurisdictionRisksLoading(false)
+    }
+  }
+
+  async function simulateMarketEntry() {
+    if (!simBusinessModel.trim()) return
+    setSimLoading(true)
+    setSimResult(null)
+    try {
+      const countries = simCountries.split(',').map(c => c.trim()).filter(Boolean)
+      const res = await fetch(`${API_URL}/api/v1/simulate/market-entry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ business_model: simBusinessModel, countries }),
+      })
+      const data = await res.json()
+      setSimResult(data)
+    } catch (e: any) {
+      setSimResult({ error: e.message })
+    } finally {
+      setSimLoading(false)
+    }
+  }
+
+  // ── M9 Ticketing state ─────────────────────────────────────────────────────
+  const [tickets, setTickets] = useState<any[]>([])
+  const [ticketTitle, setTicketTitle] = useState('')
+  const [ticketDesc, setTicketDesc] = useState('')
+  const [ticketPriority, setTicketPriority] = useState('medium')
+  const [ticketLoading, setTicketLoading] = useState(false)
+  const [ticketsLoading, setTicketsLoading] = useState(false)
+
+  useEffect(() => {
+    if (active === 'ticketing') {
+      fetchTickets()
+    }
+  }, [active])
+
+  async function fetchTickets() {
+    setTicketsLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/tickets`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setTickets(Array.isArray(data) ? data : [])
+    } catch { setTickets([]) } finally { setTicketsLoading(false) }
+  }
+
+  async function createTicket() {
+    if (!ticketTitle.trim()) return
+    setTicketLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/tickets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ title: ticketTitle, description: ticketDesc || undefined, priority: ticketPriority }),
+      })
+      const data = await res.json()
+      if (!data.error && !data.detail) {
+        showToast('Ticket created.')
+        setTicketTitle('')
+        setTicketDesc('')
+        fetchTickets()
+      }
+    } catch {} finally { setTicketLoading(false) }
+  }
+
+  async function updateTicketStatus(ticketId: string, status: string) {
+    try {
+      await fetch(`${API_URL}/api/v1/tickets/${ticketId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        body: JSON.stringify({ status }),
+      })
+      fetchTickets()
+    } catch {}
+  }
+
   // ── Login screen ───────────────────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
@@ -933,12 +1062,16 @@ export default function Home() {
           <h2 className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Modules</h2>
           <nav className="space-y-1">
             {[
+              { id: 'home', label: 'Home', desc: 'Overview dashboard' },
               { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
               { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
               { id: 'kyc', label: 'M3 — KYC/AML', desc: 'Screening + EDD' },
               { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Anomalies + drift' },
               { id: 'governance', label: 'M5 — AI Governance', desc: 'Audit + safety' },
               { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+              { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
+              { id: 'predictive', label: 'M8 — Predictive', desc: 'Risk & market simulation' },
+              { id: 'ticketing', label: 'M9 — Ticketing', desc: 'Compliance tickets' },
               { id: 'graph', label: 'Graph', desc: 'Compliance relationship graph' },
               { id: 'crawler', label: 'Crawler', desc: 'BCRA + UIF live feed' },
               { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
