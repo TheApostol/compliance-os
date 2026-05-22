@@ -77,11 +77,11 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ role: string } | null>(null)
 
-  // ── Vertical selection (persisted, shown once after login) ────────────────
+  // ── Vertical selection (session-scoped: picker shows on every new login) ──
   const [selectedVertical, setSelectedVertical] = useState<Vertical | null>(null)
 
   function selectVertical(v: Vertical) {
-    localStorage.setItem('cos_vertical', v)
+    sessionStorage.setItem('cos_vertical', v)
     setSelectedVertical(v)
   }
 
@@ -100,7 +100,8 @@ export default function Home() {
       const claims = decodeJwtPayload(stored)
       if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
     }
-    const storedVertical = localStorage.getItem('cos_vertical') as Vertical | null
+    // sessionStorage: survives tab refresh but not a new tab/session → picker shows on fresh login
+    const storedVertical = sessionStorage.getItem('cos_vertical') as Vertical | null
     if (storedVertical && VERTICALS.find(v => v.id === storedVertical)) {
       setSelectedVertical(storedVertical)
     }
@@ -141,7 +142,7 @@ export default function Home() {
 
   function logout() {
     localStorage.removeItem('cos_token')
-    localStorage.removeItem('cos_vertical')
+    sessionStorage.removeItem('cos_vertical')
     setToken(null)
     setIsLoggedIn(false)
     setCurrentUser(null)
@@ -968,8 +969,14 @@ export default function Home() {
           ))}
         </div>
         <button
+          onClick={() => { sessionStorage.removeItem('cos_vertical'); setSelectedVertical(null) }}
+          className="mt-8 text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-800 rounded px-3 py-1.5"
+        >
+          ← Back
+        </button>
+        <button
           onClick={logout}
-          className="mt-10 text-xs text-zinc-600 hover:text-zinc-400 underline"
+          className="mt-3 text-xs text-zinc-600 hover:text-zinc-400 underline"
         >
           Sign out
         </button>
@@ -990,7 +997,7 @@ export default function Home() {
                 <p className="text-sm mt-0.5 flex items-center gap-2">
                   <span style={{ color: v.color }} className="font-medium">{v.icon} {v.label}</span>
                   <button
-                    onClick={() => { localStorage.removeItem('cos_vertical'); setSelectedVertical(null) }}
+                    onClick={() => { sessionStorage.removeItem('cos_vertical'); setSelectedVertical(null) }}
                     className="text-zinc-600 hover:text-zinc-400 text-xs underline"
                   >
                     change
