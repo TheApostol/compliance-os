@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from app.db.base import AsyncSessionLocal
 from app.db.models import Regulation
-from app.services.ai_orchestrator import ai_orchestrator
+from app.services.ai_orchestrator import get_orchestrator
 
 
 class CrawlResult(BaseModel):
@@ -126,7 +126,7 @@ class LatamRegulatoryCrawler:
             f"Return strict JSON with an 'obligations' list.\n\n"
             f"{json.dumps(data, ensure_ascii=False, default=str)[:14000]}"
         )
-        result = await ai_orchestrator.infer(
+        result = await get_orchestrator().infer(
             task_type="regulatory_parsing",
             prompt=prompt,
             model_preference=model_preference,
