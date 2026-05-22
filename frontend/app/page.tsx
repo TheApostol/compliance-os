@@ -20,7 +20,7 @@ const INDUSTRY_CONFIGS: Record<Industry, IndustryConfig> = {
     color: 'blue', accentClass: 'border-blue-700 bg-blue-950/30',
     regulators: 'BCRA · UIF · BACEN · CMF · FATF',
     aiContext: 'Financial services company in LATAM subject to BCRA, UIF, BACEN, CMF, and FATF AML/CFT regulations.',
-    ticketCategories: ['AML Alert', 'KYC Exception', 'Regulatory Breach', 'Audit Finding', 'Risk Escalation', 'Suspicious Transaction'],
+    ticketCategories: ['AML Alert', 'KYC Exception', 'Regulatory Breach', 'Audit Finding', 'Risk Escalation', 'Suspicious Transaction', 'Regulatory Deadline'],
     modules: [
       { id: 'home', label: 'Home', desc: 'Overview dashboard' },
       { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
@@ -45,7 +45,7 @@ const INDUSTRY_CONFIGS: Record<Industry, IndustryConfig> = {
     color: 'emerald', accentClass: 'border-emerald-700 bg-emerald-950/30',
     regulators: 'SSN · SUSEP · CMF · CNSF',
     aiContext: 'Insurance company in LATAM subject to SSN (Argentina), SUSEP (Brazil), CMF (Chile), and CNSF (Mexico) solvency and market conduct regulations.',
-    ticketCategories: ['Policy Compliance', 'Claims Dispute', 'Regulatory Filing', 'Solvency Alert', 'Fraud Investigation', 'Actuarial Review'],
+    ticketCategories: ['Policy Compliance', 'Claims Dispute', 'Regulatory Filing', 'Solvency Alert', 'Fraud Investigation', 'Actuarial Review', 'Regulatory Deadline'],
     modules: [
       { id: 'home', label: 'Home', desc: 'Overview dashboard' },
       { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
@@ -67,7 +67,7 @@ const INDUSTRY_CONFIGS: Record<Industry, IndustryConfig> = {
     color: 'rose', accentClass: 'border-rose-700 bg-rose-950/30',
     regulators: 'ANMAT · ANVISA · COFEPRIS · LGPD · PDPA',
     aiContext: 'Healthcare/pharma company in LATAM subject to ANMAT (Argentina), ANVISA (Brazil), COFEPRIS (Mexico), and LGPD/PDPA data privacy regulations.',
-    ticketCategories: ['Adverse Event', 'Safety Report', 'Regulatory Filing', 'Privacy Incident', 'Quality Deviation', 'Clinical Protocol Deviation'],
+    ticketCategories: ['Adverse Event', 'Safety Report', 'Regulatory Filing', 'Privacy Incident', 'Quality Deviation', 'Clinical Protocol Deviation', 'Regulatory Deadline'],
     modules: [
       { id: 'home', label: 'Home', desc: 'Overview dashboard' },
       { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
@@ -89,7 +89,7 @@ const INDUSTRY_CONFIGS: Record<Industry, IndustryConfig> = {
     color: 'zinc', accentClass: 'border-zinc-600 bg-zinc-800/30',
     regulators: 'LGPD · PDPA · Labor · Environmental · Tax',
     aiContext: 'Corporate entity in LATAM subject to labor, environmental, data privacy (LGPD/PDPA), and general corporate compliance regulations.',
-    ticketCategories: ['Legal Notice', 'Environmental Violation', 'Labor Compliance', 'Data Privacy', 'Tax Finding', 'General Compliance'],
+    ticketCategories: ['Legal Notice', 'Environmental Violation', 'Labor Compliance', 'Data Privacy', 'Tax Finding', 'General Compliance', 'Regulatory Deadline'],
     modules: [
       { id: 'home', label: 'Home', desc: 'Overview dashboard' },
       { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
@@ -1066,6 +1066,9 @@ export default function Home() {
     }
   }
 
+  // ── Mobile sidebar state ───────────────────────────────────────────────────
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
   // ── M9 Ticketing state ─────────────────────────────────────────────────────
   const [tickets, setTickets] = useState<any[]>([])
   const [ticketTitle, setTicketTitle] = useState('')
@@ -1073,6 +1076,9 @@ export default function Home() {
   const [ticketPriority, setTicketPriority] = useState('medium')
   const [ticketLoading, setTicketLoading] = useState(false)
   const [ticketsLoading, setTicketsLoading] = useState(false)
+  const [ticketChatQ, setTicketChatQ] = useState('')
+  const [ticketChatR, setTicketChatR] = useState<any>(null)
+  const [ticketChatLoading, setTicketChatLoading] = useState(false)
 
   useEffect(() => {
     if (active === 'ticketing') {
@@ -1117,6 +1123,27 @@ export default function Home() {
       })
       fetchTickets()
     } catch {}
+  }
+
+  async function askTicketAI() {
+    if (!ticketChatQ.trim()) return
+    setTicketChatLoading(true)
+    setTicketChatR(null)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/copilot/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token, industryCfg?.aiContext) },
+        body: JSON.stringify({
+          question: `[${industryCfg?.name ?? 'Compliance'} context] ${ticketChatQ}`,
+          deep_mode: false,
+        }),
+      })
+      setTicketChatR(await res.json())
+    } catch (e: any) {
+      setTicketChatR({ error: e.message })
+    } finally {
+      setTicketChatLoading(false)
+    }
   }
 
   // ── Login screen ───────────────────────────────────────────────────────────
@@ -1186,7 +1213,7 @@ export default function Home() {
           <h1 className="text-3xl font-bold tracking-tight mb-2">ComplianceOS</h1>
           <p className="text-zinc-400 text-sm">Select your industry to configure modules, AI context, and workflows</p>
         </div>
-        <div className="grid grid-cols-2 gap-5 w-full max-w-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 w-full max-w-2xl px-4 sm:px-0">
           {INDUSTRY_CARDS.map(({ id, icon }) => {
             const cfg = INDUSTRY_CONFIGS[id]
             return (
@@ -1213,22 +1240,36 @@ export default function Home() {
   // ── Main app ───────────────────────────────────────────────────────────────
   return (
     <main className="min-h-screen">
-      <header className="border-b border-zinc-800 px-8 py-5">
+      <header className="border-b border-zinc-800 px-4 md:px-8 py-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">ComplianceOS</h1>
-            <p className="text-sm text-zinc-500">{industryCfg.name} · {industryCfg.regulators}</p>
+          <div className="flex items-center gap-3">
+            <button
+              className="md:hidden p-2 rounded-md hover:bg-zinc-800 text-zinc-400"
+              onClick={() => setSidebarOpen(o => !o)}
+              aria-label="Toggle menu"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={sidebarOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'} />
+              </svg>
+            </button>
+            <button onClick={() => setActive('home')} className="text-left">
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight">ComplianceOS</h1>
+              <p className="text-xs md:text-sm text-zinc-500 hidden sm:block">{industryCfg.name} · {industryCfg.regulators}</p>
+            </button>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4">
+            <button
+              onClick={() => setActive('home')}
+              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 border border-zinc-700 rounded-md text-xs hover:bg-zinc-700 text-zinc-300 font-medium"
+            >
+              ⌂ Dashboard
+            </button>
             <button
               onClick={() => { localStorage.removeItem('cos_industry'); setIndustry(null) }}
-              className="px-3 py-1.5 border border-zinc-800 rounded-md text-xs hover:bg-zinc-900 text-zinc-500"
+              className="hidden sm:block px-3 py-1.5 border border-zinc-800 rounded-md text-xs hover:bg-zinc-900 text-zinc-500"
             >
               Change industry
             </button>
-            <div className="text-xs text-zinc-500">
-              tenant: <span className="text-zinc-300 font-mono">polkorp</span>
-            </div>
             <button
               onClick={logout}
               className="px-3 py-1.5 border border-zinc-800 rounded-md text-xs hover:bg-zinc-900 text-zinc-400"
@@ -1239,15 +1280,15 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-8 py-8 grid grid-cols-12 gap-8">
-        <aside className="col-span-3">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 md:py-8 grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
+        <aside className={`col-span-1 md:col-span-3 ${sidebarOpen ? 'block' : 'hidden md:block'}`}>
           <h2 className="text-xs uppercase tracking-wider text-zinc-500 mb-3">{industryCfg.name}</h2>
           <nav className="space-y-1">
             {industryCfg.modules.map(m => (
               m.id === 'alerts' ? (
                 <button
                   key="alerts"
-                  onClick={() => setActive('alerts')}
+                  onClick={() => { setActive('alerts'); setSidebarOpen(false) }}
                   className={`w-full text-left p-3 rounded-md transition ${active === 'alerts' ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-900'}`}
                 >
                   <div className="text-sm font-medium flex items-center">
@@ -1258,7 +1299,7 @@ export default function Home() {
               ) : (
                 <button
                   key={m.id}
-                  onClick={() => setActive(m.id)}
+                  onClick={() => { setActive(m.id); setSidebarOpen(false) }}
                   className={`w-full text-left p-3 rounded-md transition ${active === m.id ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-900'}`}
                 >
                   <div className="text-sm font-medium">{m.label}</div>
@@ -1268,7 +1309,7 @@ export default function Home() {
             ))}
             {currentUser?.role === 'admin' && (
               <button
-                onClick={() => setActive('admin')}
+                onClick={() => { setActive('admin'); setSidebarOpen(false) }}
                 className={`w-full text-left p-3 rounded-md transition ${active === 'admin' ? 'bg-zinc-800 border border-zinc-700' : 'hover:bg-zinc-900'}`}
               >
                 <div className="text-sm font-medium">Admin</div>
@@ -1278,11 +1319,19 @@ export default function Home() {
           </nav>
         </aside>
 
-        <section className="col-span-9">
+        <section className="col-span-1 md:col-span-9">
           {successToast && (
             <div className="mb-4 px-4 py-2.5 bg-green-950 border border-green-800 rounded-md text-sm text-green-400 transition-opacity">
               {successToast}
             </div>
+          )}
+          {active !== 'home' && (
+            <button
+              onClick={() => { setActive('home'); setSidebarOpen(false) }}
+              className="mb-4 flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition"
+            >
+              ← Dashboard
+            </button>
           )}
 
           {/* ── Copilot ─────────────────────────────────────────────────────── */}
@@ -3541,6 +3590,31 @@ export default function Home() {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+              </div>
+
+              {/* AI Assistant */}
+              <div className="border border-zinc-800 rounded-lg p-4 space-y-3">
+                <div className="text-xs uppercase tracking-wider text-zinc-500">AI Compliance Assistant</div>
+                <p className="text-xs text-zinc-600">Ask the Copilot about regulatory obligations, deadlines, or actions for this ticket.</p>
+                <textarea
+                  value={ticketChatQ}
+                  onChange={e => setTicketChatQ(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) askTicketAI() }}
+                  placeholder={`e.g. What are the UIF reporting deadlines for an AML Alert in Argentina?`}
+                  className="w-full p-3 bg-zinc-900 border border-zinc-800 rounded text-sm min-h-20 focus:outline-none focus:border-zinc-600"
+                />
+                <button
+                  onClick={askTicketAI}
+                  disabled={ticketChatLoading || !ticketChatQ.trim()}
+                  className="px-4 py-2 bg-zinc-800 border border-zinc-700 rounded text-sm hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {ticketChatLoading ? 'Analyzing...' : 'Ask AI'}
+                </button>
+                {ticketChatR && (
+                  <div className="mt-3 p-3 bg-zinc-900 border border-zinc-800 rounded text-sm text-zinc-300 whitespace-pre-wrap">
+                    {ticketChatR.error ? `Error: ${ticketChatR.error}` : ticketChatR.answer ?? ticketChatR.response ?? JSON.stringify(ticketChatR, null, 2)}
                   </div>
                 )}
               </div>
