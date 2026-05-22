@@ -985,6 +985,17 @@ export default function Home() {
               </button>
             )}
           </nav>
+
+          <div className="mt-6 pt-5 border-t border-zinc-800">
+            <div className="text-xs uppercase tracking-wider text-zinc-500 mb-2">Industry Modules</div>
+            <a
+              href="/ticketing"
+              className="block w-full text-left p-3 rounded-md hover:bg-zinc-900 transition border border-zinc-800 hover:border-zinc-700"
+            >
+              <div className="text-sm font-medium text-zinc-200">M9 — Ticketing</div>
+              <div className="text-xs text-zinc-500">Event compliance for LATAM</div>
+            </a>
+          </div>
         </aside>
 
         <section className="col-span-9">
