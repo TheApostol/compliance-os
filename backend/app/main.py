@@ -4,6 +4,7 @@ ComplianceOS — FastAPI Application Entry Point
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -28,23 +29,41 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    import asyncio
+async def _background_init():
+    """Run DB and Qdrant init after the server is already accepting requests."""
+    await asyncio.sleep(2)  # let the server fully start first
 
-    # Ensure all tables exist — wrapped in timeout so a slow DB doesn't block startup
+    # DB schema
     import app.db.models  # noqa: F401
     import app.core.audit  # noqa: F401
     import app.modules.workflows.models  # noqa: F401
-    try:
-        async with asyncio.timeout(30):
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-        logger.info("DB schema verified")
-    except Exception as e:
-        logger.warning("DB schema setup failed (will retry on first request): %s", e)
+    for attempt in range(5):
+        try:
+            async with asyncio.timeout(20):
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+            logger.info("DB schema verified")
+            break
+        except Exception as e:
+            wait = 5 * (attempt + 1)
+            logger.warning("DB init attempt %d failed (%s) — retrying in %ds", attempt + 1, e, wait)
+            await asyncio.sleep(wait)
+    else:
+        logger.error("DB schema init failed after 5 attempts — DB-dependent endpoints will error")
 
-    # Wire audit log into AI orchestrator
+    # Qdrant RAG collection
+    try:
+        async with asyncio.timeout(15):
+            from app.services.rag import get_rag
+            await get_rag().ensure_collection()
+        logger.info("Qdrant RAG collection ready")
+    except Exception as e:
+        logger.warning("Qdrant not available at startup: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Wire audit log into AI orchestrator (no I/O — always safe)
     from app.core.audit import append_audit
     from app.db.base import AsyncSessionLocal
     from app.services.ai_orchestrator import get_orchestrator
@@ -60,21 +79,8 @@ async def lifespan(app: FastAPI):
             )
 
     get_orchestrator().set_audit_callback(_audit_callback)
-    logger.info("Audit log wired to AI orchestrator")
 
-    # Ensure Qdrant RAG collection exists
-    try:
-        async with asyncio.timeout(15):
-            from app.services.rag import get_rag
-            await get_rag().ensure_collection()
-        logger.info("Qdrant RAG collection ready")
-    except Exception as e:
-        logger.warning("Qdrant not available at startup: %s", e)
-
-    logger.info(f"Starting {settings.app_name} ({settings.app_env})")
-    logger.info(f"NVIDIA configured: {settings.has_nvidia}")
-
-    # Start regulatory crawler scheduler
+    # Start crawler scheduler
     _scheduler = None
     if settings.crawler_enabled:
         try:
@@ -82,6 +88,12 @@ async def lifespan(app: FastAPI):
             _scheduler = start_scheduler()
         except Exception as e:
             logger.warning("Crawler scheduler failed to start: %s", e)
+
+    # DB + Qdrant init runs in background — healthcheck passes immediately
+    asyncio.create_task(_background_init())
+
+    logger.info(f"Starting {settings.app_name} ({settings.app_env})")
+    logger.info(f"NVIDIA configured: {settings.has_nvidia}")
 
     yield
 

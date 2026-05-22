@@ -17,6 +17,7 @@ RUN pip install -r requirements.txt
 
 COPY ./app ./app
 COPY ./scripts ./scripts
+# cache-bust: 2026-05-22
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/api/v1/health || exit 1
