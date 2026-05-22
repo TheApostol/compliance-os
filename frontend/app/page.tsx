@@ -3282,12 +3282,18 @@ export default function Home() {
                     <p className="text-sm text-zinc-300 font-medium">{industryCfg.name}</p>
                     <p className="text-xs text-zinc-500 mt-1">{industryCfg.regulators}</p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex flex-col items-end gap-2">
                     <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${dashHealth ? 'bg-green-900/50 text-green-400 border border-green-800' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${dashHealth ? 'bg-green-400' : 'bg-zinc-500'}`} />
                       {dashHealth ? 'Systems Online' : 'Connecting...'}
                     </div>
-                    <div className="text-xs text-zinc-600 mt-1.5">tenant: polkorp</div>
+                    <button
+                      onClick={() => { window.location.href = '/dashboard' }}
+                      style={{ background: '#FFE135', color: '#0A0A0A', border: 'none', borderRadius: 12, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      🍋 Open Lemon Cash Dashboard →
+                    </button>
+                    <div className="text-xs text-zinc-600">tenant: polkorp</div>
                   </div>
                 </div>
               </div>
