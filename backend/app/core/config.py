@@ -59,7 +59,11 @@ class Settings(BaseSettings):
     # ── API ────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: Annotated[list[str], BeforeValidator(_parse_cors)] = ["http://localhost:3000"]
+    cors_origins: str = "http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return _parse_cors(self.cors_origins)
 
     # ── Database ───────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://complianceos:complianceos@db:5432/complianceos"
@@ -138,7 +142,7 @@ settings = get_settings()
 if __name__ == "__main__":
     s = get_settings()
     print(f"✓ App: {s.app_name} ({s.app_env})")
-    print(f"✓ CORS origins ({len(s.cors_origins)}):")
-    for o in s.cors_origins:
+    print(f"✓ CORS origins ({len(s.cors_origins_list)}):")
+    for o in s.cors_origins_list:
         print(f"  - {o}")
     print(f"✓ NVIDIA configured: {s.has_nvidia}")
