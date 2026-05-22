@@ -62,20 +62,18 @@ async def _background_init():
 
     # Create default admin user if none exists
     try:
+        import os
         from app.db.base import AsyncSessionLocal
         from app.db.models import User, Tenant, UserRole
         from app.core.auth import hash_password
         from sqlalchemy import select
 
-        admin_email = settings.app_env and (
-            __import__("os").environ.get("ADMIN_EMAIL", "admin@complianceos.io")
-        )
-        admin_password = __import__("os").environ.get("ADMIN_PASSWORD", "ComplianceOS2026!")
+        admin_email = os.environ.get("ADMIN_EMAIL", "admin@complianceos.io")
+        admin_password = os.environ.get("ADMIN_PASSWORD", "ComplianceOS2026!")
 
         async with AsyncSessionLocal() as session:
             existing = (await session.execute(select(User).limit(1))).scalar_one_or_none()
             if not existing:
-                # Ensure default tenant exists
                 tenant = (await session.execute(
                     select(Tenant).where(Tenant.slug == settings.default_tenant_id)
                 )).scalar_one_or_none()
@@ -93,7 +91,6 @@ async def _background_init():
                 user = User(
                     email=admin_email,
                     hashed_password=hash_password(admin_password),
-                    full_name="Admin",
                     role=UserRole.ADMIN,
                     tenant_id=tenant.slug,
                     is_active=True,
