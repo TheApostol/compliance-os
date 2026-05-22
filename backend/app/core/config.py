@@ -43,13 +43,15 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: Any) -> list[str]:
-        """Accept JSON array, CSV string, or list. Robust to common .env mistakes."""
+        """Accept JSON array, CSV string, '*', or list. Robust to common .env mistakes."""
         if v is None or v == "":
             return ["http://localhost:3000"]
         if isinstance(v, list):
             return v
         if isinstance(v, str):
             v = v.strip()
+            if v == "*":
+                return ["*"]
             if v.startswith("["):
                 try:
                     parsed = json.loads(v)
