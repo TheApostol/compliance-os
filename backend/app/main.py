@@ -60,6 +60,50 @@ async def _background_init():
     except Exception as e:
         logger.warning("Qdrant not available at startup: %s", e)
 
+    # Create default admin user if none exists
+    try:
+        from app.db.base import AsyncSessionLocal
+        from app.db.models import User, Tenant, UserRole
+        from app.core.auth import hash_password
+        from sqlalchemy import select
+
+        admin_email = settings.app_env and (
+            __import__("os").environ.get("ADMIN_EMAIL", "admin@complianceos.io")
+        )
+        admin_password = __import__("os").environ.get("ADMIN_PASSWORD", "ComplianceOS2026!")
+
+        async with AsyncSessionLocal() as session:
+            existing = (await session.execute(select(User).limit(1))).scalar_one_or_none()
+            if not existing:
+                # Ensure default tenant exists
+                tenant = (await session.execute(
+                    select(Tenant).where(Tenant.slug == settings.default_tenant_id)
+                )).scalar_one_or_none()
+                if not tenant:
+                    tenant = Tenant(
+                        slug=settings.default_tenant_id,
+                        name=settings.default_tenant_name,
+                        sector="multi",
+                        jurisdictions=["AR", "BR", "MX"],
+                        data_residency_policy={"ai_providers_allowed": ["nvidia", "anthropic"]},
+                    )
+                    session.add(tenant)
+                    await session.flush()
+
+                user = User(
+                    email=admin_email,
+                    hashed_password=hash_password(admin_password),
+                    full_name="Admin",
+                    role=UserRole.ADMIN,
+                    tenant_id=tenant.slug,
+                    is_active=True,
+                )
+                session.add(user)
+                await session.commit()
+                logger.info("Default admin user created: %s", admin_email)
+    except Exception as e:
+        logger.warning("Could not create default admin user: %s", e)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
