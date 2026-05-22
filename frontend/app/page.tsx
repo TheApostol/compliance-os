@@ -6,6 +6,18 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search' | 'score' | 'alerts' | 'webhooks'
 
+type Vertical = 'FINTECH' | 'CRYPTO_VASP' | 'INSURANCE' | 'HEALTH_PHARMA' | 'GAMING' | 'CAPITAL_MARKETS' | 'TELECOM'
+
+const VERTICALS: { id: Vertical; label: string; desc: string; regulators: string; color: string; icon: string }[] = [
+  { id: 'FINTECH',         label: 'Fintech & Payments',    desc: 'PSPs, banks, e-money institutions',         regulators: 'BCRA · UIF · SBS · CNBV · FATF',          color: '#4A9FD4', icon: '🏦' },
+  { id: 'CRYPTO_VASP',     label: 'Crypto & VASP',         desc: 'Exchanges, DeFi, virtual asset providers',   regulators: 'BCRA A8094 · FinCEN · MiCA · FATF TR15',  color: '#FFE135', icon: '₿' },
+  { id: 'INSURANCE',       label: 'Insurance',             desc: 'Insurers, reinsurers, brokers',              regulators: 'SUSEP · EIOPA · Solvency II · CNS',        color: '#10B981', icon: '🛡' },
+  { id: 'HEALTH_PHARMA',   label: 'Health & Pharma',       desc: 'Hospitals, labs, pharma manufacturers',      regulators: 'FDA · EMA · HIPAA · ANVISA · ANMAT',      color: '#EF4444', icon: '⚕️' },
+  { id: 'GAMING',          label: 'Gaming & Betting',      desc: 'Online casinos, sports betting, lotteries',  regulators: 'DGOJ · MGA · ONJN · LOTBA · Coljuegos',   color: '#8B5CF6', icon: '🎲' },
+  { id: 'CAPITAL_MARKETS', label: 'Capital Markets',       desc: 'Brokers, asset managers, funds',             regulators: 'CMF · CVM · CNV · SEC · ESMA',             color: '#F59E0B', icon: '📈' },
+  { id: 'TELECOM',         label: 'Telecom & ISPs',        desc: 'Mobile operators, internet providers',        regulators: 'ANATEL · IFT · CRC · Ofcom · ITU',        color: '#06B6D4', icon: '📡' },
+]
+
 function SkeletonRow({ cols = 3 }: { cols?: number }) {
   return (
     <tr className="border-b border-zinc-800">
@@ -65,6 +77,14 @@ export default function Home() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [currentUser, setCurrentUser] = useState<{ role: string } | null>(null)
 
+  // ── Vertical selection (persisted, shown once after login) ────────────────
+  const [selectedVertical, setSelectedVertical] = useState<Vertical | null>(null)
+
+  function selectVertical(v: Vertical) {
+    localStorage.setItem('cos_vertical', v)
+    setSelectedVertical(v)
+  }
+
   function decodeJwtPayload(jwt: string): any {
     try {
       const payload = jwt.split('.')[1]
@@ -79,6 +99,10 @@ export default function Home() {
       setIsLoggedIn(true)
       const claims = decodeJwtPayload(stored)
       if (claims) setCurrentUser({ role: claims.role ?? 'analyst' })
+    }
+    const storedVertical = localStorage.getItem('cos_vertical') as Vertical | null
+    if (storedVertical && VERTICALS.find(v => v.id === storedVertical)) {
+      setSelectedVertical(storedVertical)
     }
   }, [])
 
@@ -117,9 +141,11 @@ export default function Home() {
 
   function logout() {
     localStorage.removeItem('cos_token')
+    localStorage.removeItem('cos_vertical')
     setToken(null)
     setIsLoggedIn(false)
     setCurrentUser(null)
+    setSelectedVertical(null)
     setLoginEmail('')
     setLoginPassword('')
   }
@@ -139,6 +165,15 @@ export default function Home() {
   const [question, setQuestion] = useState('')
   const [response, setResponse] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [cannedQuestions, setCannedQuestions] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!selectedVertical) return
+    fetch(`${API_URL}/api/v1/copilot/canned-questions?vertical=${selectedVertical}`)
+      .then(r => r.json())
+      .then(d => setCannedQuestions(d.questions || []))
+      .catch(() => {})
+  }, [selectedVertical])
 
   async function ask() {
     if (!question.trim()) return
@@ -905,6 +940,43 @@ export default function Home() {
     )
   }
 
+  // ── Vertical selection screen ──────────────────────────────────────────────
+  if (isLoggedIn && !selectedVertical) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center px-6 py-12">
+        <div className="mb-10 text-center">
+          <h1 className="text-3xl font-bold tracking-tight">Welcome to ComplianceOS</h1>
+          <p className="text-zinc-400 mt-2 text-sm">Select your industry to load the right regulations, regulators, and AI context.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full max-w-5xl">
+          {VERTICALS.map(v => (
+            <button
+              key={v.id}
+              onClick={() => selectVertical(v.id)}
+              className="group text-left p-5 rounded-xl border border-zinc-800 bg-zinc-950 hover:border-zinc-600 hover:bg-zinc-900 transition-all duration-150"
+            >
+              <div className="text-3xl mb-3">{v.icon}</div>
+              <div
+                className="text-sm font-semibold mb-1"
+                style={{ color: v.color }}
+              >
+                {v.label}
+              </div>
+              <p className="text-xs text-zinc-500 mb-3 leading-relaxed">{v.desc}</p>
+              <p className="text-xs text-zinc-600 font-mono leading-relaxed">{v.regulators}</p>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={logout}
+          className="mt-10 text-xs text-zinc-600 hover:text-zinc-400 underline"
+        >
+          Sign out
+        </button>
+      </main>
+    )
+  }
+
   // ── Main app ───────────────────────────────────────────────────────────────
   return (
     <main className="min-h-screen">
@@ -912,7 +984,20 @@ export default function Home() {
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">ComplianceOS</h1>
-            <p className="text-sm text-zinc-500">AI-native compliance for LATAM regulated industries</p>
+            {selectedVertical && (() => {
+              const v = VERTICALS.find(x => x.id === selectedVertical)!
+              return (
+                <p className="text-sm mt-0.5 flex items-center gap-2">
+                  <span style={{ color: v.color }} className="font-medium">{v.icon} {v.label}</span>
+                  <button
+                    onClick={() => { localStorage.removeItem('cos_vertical'); setSelectedVertical(null) }}
+                    className="text-zinc-600 hover:text-zinc-400 text-xs underline"
+                  >
+                    change
+                  </button>
+                </p>
+              )
+            })()}
           </div>
           <div className="flex items-center gap-4">
             <div className="text-xs text-zinc-500">
@@ -1004,11 +1089,28 @@ export default function Home() {
                 Ask any regulatory or compliance question. Powered by Kimi-K2 + fallbacks (NVIDIA NIM).
               </p>
 
+              {cannedQuestions.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs text-zinc-600 mb-2 uppercase tracking-wider">Suggested questions</p>
+                  <div className="flex flex-wrap gap-2">
+                    {cannedQuestions.map((q, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setQuestion(q)}
+                        className="px-3 py-1.5 text-xs border border-zinc-800 rounded-full bg-zinc-900 hover:border-zinc-600 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition text-left"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
                 <textarea
                   value={question}
                   onChange={e => setQuestion(e.target.value)}
-                  placeholder="¿Qué cambia regulatoriamente si opero como PSP en Perú vs Argentina?"
+                  placeholder="Ask a compliance question for your industry..."
                   className="w-full p-4 bg-zinc-900 border border-zinc-800 rounded-md text-sm font-mono min-h-32 focus:outline-none focus:border-zinc-600"
                 />
 
