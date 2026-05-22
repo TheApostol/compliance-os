@@ -29,6 +29,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
+from app.core.audit import append_audit
 from app.core.auth import CurrentUser, get_current_user, require_admin
 from app.db.base import AsyncSessionLocal
 from app.db.ticketing_models import (
@@ -491,6 +492,14 @@ async def create_event(
         if result.launch_decision == "BLOCKED":
             event.status = TicketingEventStatus.BLOCKED
 
+        await append_audit(session, current_user.tenant_id, "ticketing:event_created", {
+            "event_id": str(event.id),
+            "event_name": event.name,
+            "country_code": event.country_code,
+            "launch_decision": result.launch_decision,
+            "risk_score": result.overall_score,
+            "blocking_reasons": result.blocking_reasons,
+        }, user_id=current_user.user_id)
         await session.commit()
         await session.refresh(event)
 
@@ -551,6 +560,12 @@ async def update_event(
         ):
             ev.status = TicketingEventStatus.BLOCKED
 
+        await append_audit(session, current_user.tenant_id, "ticketing:event_updated", {
+            "event_id": str(ev.id),
+            "launch_decision": result.launch_decision,
+            "risk_score": result.overall_score,
+            "blocking_reasons": result.blocking_reasons,
+        }, user_id=current_user.user_id)
         await session.commit()
         await session.refresh(ev)
 
@@ -611,6 +626,14 @@ async def run_risk_assessment(
             recommendations=result.recommendations,
         )
         session.add(score)
+        await append_audit(session, current_user.tenant_id, "ticketing:risk_assessed", {
+            "event_id": event_id,
+            "score_id": str(score.id),
+            "launch_decision": result.launch_decision,
+            "overall_score": result.overall_score,
+            "blocking_reasons": result.blocking_reasons,
+            "missing_controls": result.missing_controls,
+        }, user_id=current_user.user_id)
         await session.commit()
         await session.refresh(score)
 

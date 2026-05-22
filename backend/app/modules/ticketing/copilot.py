@@ -72,7 +72,7 @@ class TicketingCopilot:
 
         user_message = f"{question}{context_block}"
 
-        task = TaskType.COPILOT_DEEP if deep_mode else TaskType.COPILOT_QA
+        task = TaskType.TICKETING_COPILOT
 
         result = await self._orchestrator.infer(
             task=task,
@@ -251,7 +251,7 @@ class TicketingCopilot:
             prompt += f"\n\nEvent context: {json.dumps(event_context, default=str)}"
 
         result = await self._orchestrator.infer(
-            task=TaskType.COPILOT_QA,
+            task=TaskType.TICKETING_DOC_GEN,
             messages=[
                 {
                     "role": "system",
