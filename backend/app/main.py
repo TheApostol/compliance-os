@@ -30,15 +30,21 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure all tables exist (idempotent — safe to run on every startup)
-    import app.db.models  # noqa: F401 — registers all domain models with Base.metadata
-    import app.core.audit  # noqa: F401 — registers AuditLogEntry with Base.metadata
-    import app.modules.workflows.models  # noqa: F401 — registers M7 workflow models
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("DB schema verified")
+    import asyncio
 
-    # Wire the immutable audit log into the AI orchestrator
+    # Ensure all tables exist — wrapped in timeout so a slow DB doesn't block startup
+    import app.db.models  # noqa: F401
+    import app.core.audit  # noqa: F401
+    import app.modules.workflows.models  # noqa: F401
+    try:
+        async with asyncio.timeout(30):
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        logger.info("DB schema verified")
+    except Exception as e:
+        logger.warning("DB schema setup failed (will retry on first request): %s", e)
+
+    # Wire audit log into AI orchestrator
     from app.core.audit import append_audit
     from app.db.base import AsyncSessionLocal
     from app.services.ai_orchestrator import get_orchestrator
@@ -56,27 +62,26 @@ async def lifespan(app: FastAPI):
     get_orchestrator().set_audit_callback(_audit_callback)
     logger.info("Audit log wired to AI orchestrator")
 
-    # Ensure Qdrant RAG collection exists (idempotent)
+    # Ensure Qdrant RAG collection exists
     try:
-        from app.services.rag import get_rag
-        await get_rag().ensure_collection()
+        async with asyncio.timeout(15):
+            from app.services.rag import get_rag
+            await get_rag().ensure_collection()
         logger.info("Qdrant RAG collection ready")
     except Exception as e:
         logger.warning("Qdrant not available at startup: %s", e)
 
     logger.info(f"Starting {settings.app_name} ({settings.app_env})")
     logger.info(f"NVIDIA configured: {settings.has_nvidia}")
-    if not settings.has_nvidia:
-        logger.warning(
-            "NVIDIA_API_KEY not set — AI endpoints will return 'missing key' errors. "
-            "Get a key at https://build.nvidia.com and add it to .env"
-        )
 
-    # Start regulatory crawler scheduler (BCRA every 6h, UIF every 12h)
+    # Start regulatory crawler scheduler
     _scheduler = None
     if settings.crawler_enabled:
-        from app.modules.crawler.scheduler import start_scheduler
-        _scheduler = start_scheduler()
+        try:
+            from app.modules.crawler.scheduler import start_scheduler
+            _scheduler = start_scheduler()
+        except Exception as e:
+            logger.warning("Crawler scheduler failed to start: %s", e)
 
     yield
 
