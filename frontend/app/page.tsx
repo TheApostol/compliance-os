@@ -58,7 +58,7 @@ const RISK_COLORS: Record<string, string> = {
 export default function Home() {
   // ── Auth state ─────────────────────────────────────────────────────────────
   const [token, setToken] = useState<string | null>(null)
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [isLoggedIn, setIsLoggedIn] = useState(true)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
