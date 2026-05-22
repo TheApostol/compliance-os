@@ -202,6 +202,8 @@ class RegulatoryIntelligence:
                 obligations_data=obligations_data,
                 model_used=result.model_used,
             )
+            # M1→M9: sync ticketing-relevant obligations into the ticketing matrix
+            await self._sync_to_ticketing(country=country, obligations_data=obligations_data)
 
         # Index in Qdrant for RAG — best-effort, non-blocking
         if result.success and reg_id:
@@ -334,6 +336,92 @@ class RegulatoryIntelligence:
                 return count, str(reg.id)
         except Exception:
             return 0, None
+
+    @staticmethod
+    async def _sync_to_ticketing(country: str, obligations_data: list[dict]) -> None:
+        """M1→M9: upsert obligations that are relevant to ticketing into ticketing_obligations."""
+        TICKETING_COUNTRIES = {"AR", "BR", "MX", "CO", "CL", "PE", "UY", "PY"}
+        if country.upper() not in TICKETING_COUNTRIES:
+            return
+
+        TICKETING_SECTORS = {
+            "ticketing", "events", "consumer_protection", "e-commerce",
+            "entertainment", "leisure", "sports", "retail",
+        }
+        # Map M1 obligation_type → TicketingObligationCategory value
+        TYPE_TO_CATEGORY: dict[str, str] = {
+            "DISCLOSURE":      "consumer_protection",
+            "RESTRICTION":     "consumer_protection",
+            "REPORTING":       "tax",
+            "RECORD_KEEPING":  "evidence",
+            "LICENSING":       "permits",
+            "MONITORING":      "fraud_aml",
+            "FUND_SEGREGATION": "payments",
+            "OTHER":           "consumer_protection",
+        }
+        SEV_TO_RISK: dict[str, str] = {
+            "CRITICAL": "critical",
+            "HIGH":     "high",
+            "MEDIUM":   "medium",
+            "LOW":      "low",
+        }
+
+        try:
+            from app.db.base import AsyncSessionLocal
+            from app.db.ticketing_models import (
+                TicketingObligation, TicketingObligationCategory,
+                TicketingRiskLevel, TicketingImplementationStatus,
+            )
+            from sqlalchemy import select
+
+            async with AsyncSessionLocal() as session:
+                for o in obligations_data:
+                    sectors = [s.lower() for s in (o.get("applies_to_sectors") or [])]
+                    if not any(s in TICKETING_SECTORS for s in sectors):
+                        continue
+
+                    ob_code = str(o.get("obligation_code", ""))
+                    ob_type = str(o.get("obligation_type", "OTHER")).upper()
+                    category_str = TYPE_TO_CATEGORY.get(ob_type, "consumer_protection")
+                    risk_str = SEV_TO_RISK.get(str(o.get("severity", "MEDIUM")).upper(), "medium")
+
+                    try:
+                        category = TicketingObligationCategory(category_str)
+                        risk = TicketingRiskLevel(risk_str)
+                    except ValueError:
+                        continue
+
+                    # Upsert: match on country + obligation_code (tenant_id=None = global)
+                    existing = (await session.execute(
+                        select(TicketingObligation).where(
+                            TicketingObligation.country_code == country.upper(),
+                            TicketingObligation.title == ob_code,
+                            TicketingObligation.tenant_id.is_(None),
+                        )
+                    )).scalar_one_or_none()
+
+                    if existing:
+                        existing.description = str(o.get("description", ""))
+                        existing.risk_level = risk
+                        existing.legal_area = category
+                    else:
+                        session.add(TicketingObligation(
+                            country_code=country.upper(),
+                            tenant_id=None,
+                            legal_area=category,
+                            title=ob_code or str(o.get("description", ""))[:256],
+                            description=str(o.get("description", "")),
+                            legal_basis=str(o.get("deadline_rule") or ""),
+                            risk_level=risk,
+                            required_evidence=o.get("evidence_required", []),
+                            controls=o.get("controls_required", []),
+                            deadline_frequency=str(o.get("frequency") or ""),
+                            penalties_summary=str(o.get("penalty_range_usd") or ""),
+                            implementation_status=TicketingImplementationStatus.NOT_STARTED,
+                        ))
+                await session.commit()
+        except Exception:
+            pass  # best-effort, never breaks M1 flow
 
     async def map_cross_border(
         self,

@@ -14,8 +14,10 @@ Routes:
   POST /api/v1/ticketing/events/{id}/generate-checklist
   POST /api/v1/ticketing/events/{id}/generate-document
   POST /api/v1/ticketing/ai/ask
-  POST /api/v1/ticketing/evidence/upload
+  POST /api/v1/ticketing/evidence/upload                # M6 EvidenceEngine pipeline
   GET  /api/v1/ticketing/reports/{event_id}
+  POST /api/v1/ticketing/promoters                      # M3 KYC screening on creation
+  GET  /api/v1/ticketing/promoters/{id}
   POST /api/v1/ticketing/seed                           # admin: load seed data
 """
 
@@ -956,27 +958,52 @@ async def upload_evidence(
     evidence_type: str | None = Query(default=None),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Upload a compliance evidence file for an event."""
+    """Upload a compliance evidence file — routed through M6 EvidenceEngine for AI extraction
+    and a proper SHA-256 chain-of-custody record before linking to the ticketing event."""
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
-    source_hash = hashlib.sha256(content).hexdigest()
-    custody_hash = hashlib.sha256(
+    filename = file.filename or "upload"
+
+    # M6 pipeline: extract structured data + build custody hash
+    from app.modules.evidence.engine import EvidenceEngine
+    engine = EvidenceEngine()
+    m6_result = await engine.extract_from_pdf(
+        pdf_bytes=content,
+        filename=filename,
+        tenant_id=current_user.tenant_id,
+        regulation_context={"evidence_type": evidence_type, "event_id": event_id},
+        user_id=current_user.user_id,
+    )
+
+    source_hash = m6_result.get("source_hash") or hashlib.sha256(content).hexdigest()
+    custody_hash = m6_result.get("custody_hash") or hashlib.sha256(
         f"{source_hash}{datetime.now(timezone.utc).isoformat()}".encode()
     ).hexdigest()
+    m6_document_id = m6_result.get("document_id")
 
     async with AsyncSessionLocal() as session:
         evidence = TicketingEvidence(
             tenant_id=current_user.tenant_id,
             event_id=uuid.UUID(event_id) if event_id else None,
             evidence_type=evidence_type or "document",
-            filename=file.filename or "upload",
+            filename=filename,
             source_hash=source_hash,
             custody_hash=custody_hash,
             uploaded_by=current_user.user_id or "system",
+            notes=f"m6_document_id:{m6_document_id}" if m6_document_id else None,
         )
         session.add(evidence)
+        await append_audit(session, current_user.tenant_id, "ticketing:evidence_uploaded", {
+            "evidence_type": evidence_type,
+            "event_id": event_id,
+            "filename": filename,
+            "source_hash": source_hash,
+            "custody_hash": custody_hash,
+            "m6_document_id": m6_document_id,
+            "m6_extraction_success": m6_result.get("success", False),
+        }, user_id=current_user.user_id)
         await session.commit()
         await session.refresh(evidence)
 
@@ -987,6 +1014,8 @@ async def upload_evidence(
         "source_hash": source_hash,
         "custody_hash": custody_hash,
         "size_bytes": len(content),
+        "m6_document_id": m6_document_id,
+        "extracted_data": m6_result.get("structured_data") if m6_result.get("success") else None,
     }
 
 
@@ -1109,6 +1138,134 @@ async def get_event_compliance_report(
             "Regulatory requirements may change. Last updated: 2026."
         ),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PROMOTERS  (M3 KYC/AML screening on creation)
+# ═══════════════════════════════════════════════════════════════════
+
+class PromoterCreate(BaseModel):
+    name: str
+    legal_entity: str | None = None
+    tax_id: str | None = None
+    country_code: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    notes: str | None = None
+
+
+@router.post("/promoters", status_code=201)
+async def create_promoter(
+    req: PromoterCreate,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Create a promoter and screen them through M3 KYC/AML before storing."""
+    from app.modules.kyc_aml.engine import KYCAMLEngine
+    from app.db.ticketing_models import TicketingRiskLevel
+
+    kyc = KYCAMLEngine()
+    kyc_result = await kyc.screen_customer(
+        customer_data={
+            "name": req.name,
+            "legal_entity": req.legal_entity,
+            "tax_id": req.tax_id,
+            "country": req.country_code,
+            "contact_email": req.contact_email,
+            "type": "event_promoter",
+        },
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.user_id,
+    )
+
+    analysis = kyc_result.get("analysis", {})
+    kyc_risk_raw = str(analysis.get("risk_level", "MEDIUM")).upper()
+    kyc_risk_map = {"LOW": "low", "MEDIUM": "medium", "HIGH": "high", "CRITICAL": "critical"}
+    risk_str = kyc_risk_map.get(kyc_risk_raw, "medium")
+
+    try:
+        risk_level = TicketingRiskLevel(risk_str)
+    except ValueError:
+        risk_level = TicketingRiskLevel.MEDIUM
+
+    kyc_verified = kyc_risk_raw not in ("HIGH", "CRITICAL")
+
+    async with AsyncSessionLocal() as session:
+        promoter = TicketingPromoter(
+            tenant_id=current_user.tenant_id,
+            name=req.name,
+            legal_entity=req.legal_entity,
+            tax_id=req.tax_id,
+            country_code=req.country_code,
+            contact_email=req.contact_email,
+            contact_phone=req.contact_phone,
+            kyc_verified=kyc_verified,
+            risk_level=risk_level,
+            notes=req.notes,
+        )
+        session.add(promoter)
+        await session.flush()
+
+        await append_audit(session, current_user.tenant_id, "ticketing:promoter_kyc_screened", {
+            "promoter_id": str(promoter.id),
+            "promoter_name": promoter.name,
+            "kyc_risk_level": kyc_risk_raw,
+            "kyc_verified": kyc_verified,
+            "red_flags": analysis.get("red_flags", []),
+            "kyc_audit_id": kyc_result.get("audit_id"),
+        }, user_id=current_user.user_id)
+        await session.commit()
+        await session.refresh(promoter)
+
+    return {
+        "success": True,
+        "promoter": {
+            "id": str(promoter.id),
+            "name": promoter.name,
+            "legal_entity": promoter.legal_entity,
+            "country_code": promoter.country_code,
+            "kyc_verified": promoter.kyc_verified,
+            "risk_level": promoter.risk_level.value,
+            "created_at": promoter.created_at.isoformat(),
+        },
+        "kyc_screening": {
+            "risk_level": kyc_risk_raw,
+            "red_flags": analysis.get("red_flags", []),
+            "passed": kyc_verified,
+            "audit_id": kyc_result.get("audit_id"),
+        },
+    }
+
+
+@router.get("/promoters/{promoter_id}")
+async def get_promoter(
+    promoter_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Get promoter details including KYC status."""
+    from sqlalchemy import select
+    async with AsyncSessionLocal() as session:
+        p = (await session.execute(
+            select(TicketingPromoter).where(
+                TicketingPromoter.id == promoter_id,
+                TicketingPromoter.tenant_id == current_user.tenant_id,
+            )
+        )).scalar_one_or_none()
+        if not p:
+            raise HTTPException(status_code=404, detail="Promoter not found")
+        return {
+            "id": str(p.id),
+            "name": p.name,
+            "legal_entity": p.legal_entity,
+            "tax_id": p.tax_id,
+            "country_code": p.country_code,
+            "contact_email": p.contact_email,
+            "contact_phone": p.contact_phone,
+            "kyc_verified": p.kyc_verified,
+            "risk_level": p.risk_level.value,
+            "agreement_signed": p.agreement_signed,
+            "notes": p.notes,
+            "created_at": p.created_at.isoformat(),
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════
