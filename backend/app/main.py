@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -14,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
-from app.core.config import get_settings
+from app.core.config import get_settings, _parse_cors
 from app.core.logging import configure_logging
 from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
@@ -166,7 +167,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=_parse_cors(os.environ.get("CORS_ORIGINS", "http://localhost:3000")),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

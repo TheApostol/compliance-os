@@ -17,6 +17,7 @@ RUN pip install -r requirements.txt
 
 COPY backend/app ./app
 COPY backend/scripts ./scripts
+# bust: v5
 
 ENV PORT=8000
 

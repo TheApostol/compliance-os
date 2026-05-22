@@ -59,11 +59,6 @@ class Settings(BaseSettings):
     # ── API ────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: str = "http://localhost:3000"
-
-    @property
-    def cors_origins_list(self) -> list[str]:
-        return _parse_cors(self.cors_origins)
 
     # ── Database ───────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://complianceos:complianceos@db:5432/complianceos"
