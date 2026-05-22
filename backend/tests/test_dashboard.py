@@ -264,31 +264,33 @@ def test_workflow_approve_step_creates_audit_entry(test_client):
     wf_id = str(uuid.uuid4())
     step_id = str(uuid.uuid4())
 
-    with patch("app.db.base.AsyncSessionLocal") as mock_session_cls:
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-        mock_session_cls.return_value = mock_session
+    mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    mock_session.commit = AsyncMock()
 
-        mock_wf = MagicMock()
-        mock_wf.id = uuid.UUID(wf_id)
-        mock_wf.tenant_id = "polkorp"
-        mock_wf.status = MagicMock(value="running")
+    mock_wf = MagicMock()
+    mock_wf.id = uuid.UUID(wf_id)
+    mock_wf.tenant_id = "polkorp"
+    mock_wf.status = MagicMock(value="running")
 
-        mock_step = MagicMock()
-        mock_step.id = uuid.UUID(step_id)
-        mock_step.workflow_id = uuid.UUID(wf_id)
-        mock_step.requires_approval = True
-        mock_step.status = MagicMock(value="pending")
+    mock_step = MagicMock()
+    mock_step.id = uuid.UUID(step_id)
+    mock_step.workflow_id = uuid.UUID(wf_id)
+    mock_step.requires_approval = True
+    mock_step.completed = False
+    mock_step.status = "pending"
 
-        result1 = MagicMock()
-        result1.scalar_one_or_none.return_value = mock_wf
-        result2 = MagicMock()
-        result2.scalar_one_or_none.return_value = mock_step
-        result3 = MagicMock()
-        result3.scalars.return_value.all.return_value = [mock_step]
+    result1 = MagicMock()
+    result1.scalar_one_or_none.return_value = mock_wf
+    result2 = MagicMock()
+    result2.scalar_one_or_none.return_value = mock_step
+    result3 = MagicMock()
+    result3.scalars.return_value.all.return_value = [mock_step]
 
-        mock_session.execute = AsyncMock(side_effect=[result1, result2, result3])
+    mock_session.execute = AsyncMock(side_effect=[result1, result2, result3])
 
+    with patch("app.db.base.AsyncSessionLocal", return_value=mock_session), \
+         patch("app.api.v1.m7_m8_router.AsyncSessionLocal", return_value=mock_session):
         resp = test_client.post(f"/api/v1/workflow/{wf_id}/steps/{step_id}/approve")
         assert resp.status_code in (200, 404, 422)
