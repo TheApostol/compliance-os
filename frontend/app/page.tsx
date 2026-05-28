@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+// Empty string → relative URLs → Next.js rewrites proxy to BACKEND_URL at request time.
+// No NEXT_PUBLIC_ needed; no CORS issues; works on Vercel without a Vercel rebuild.
+const API_URL = ''
 
 type Module = 'copilot' | 'kyc' | 'monitoring' | 'governance' | 'regulatory' | 'evidence' | 'graph' | 'crawler' | 'admin' | 'audit' | 'search' | 'score' | 'alerts' | 'webhooks'
 
@@ -903,8 +905,9 @@ export default function Home() {
               : 'bg-red-950 border border-red-900 text-red-300'
           }`}>
             <span>{backendOk === null ? '⏳' : backendOk ? '✓' : '✗'}</span>
-            <span className="font-mono truncate">{API_URL}</span>
-            {backendOk === false && <span className="ml-auto shrink-0">unreachable</span>}
+            <span className="font-mono truncate">/api/v1/health</span>
+            {backendOk === null && <span className="ml-auto shrink-0">connecting…</span>}
+            {backendOk === false && <span className="ml-auto shrink-0">backend unreachable</span>}
           </div>
 
           <div className="mb-8 text-center">
