@@ -30,31 +30,37 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure all tables exist (idempotent — safe to run on every startup)
-    import app.db.models  # noqa: F401 — registers all domain models with Base.metadata
-    import app.core.audit  # noqa: F401 — registers AuditLogEntry with Base.metadata
-    import app.modules.workflows.models  # noqa: F401 — registers M7 workflow models
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("DB schema verified")
+    # Ensure all tables exist — wrapped so a bad DATABASE_URL doesn't crash the whole app
+    import app.db.models  # noqa: F401
+    import app.core.audit  # noqa: F401
+    import app.modules.workflows.models  # noqa: F401
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("DB schema verified")
+    except Exception as e:
+        logger.error("DB connection failed at startup — running in degraded mode: %s", e)
 
     # Wire the immutable audit log into the AI orchestrator
-    from app.core.audit import append_audit
-    from app.db.base import AsyncSessionLocal
-    from app.services.ai_orchestrator import get_orchestrator
+    try:
+        from app.core.audit import append_audit
+        from app.db.base import AsyncSessionLocal
+        from app.services.ai_orchestrator import get_orchestrator
 
-    async def _audit_callback(payload: dict):
-        async with AsyncSessionLocal() as session:
-            await append_audit(
-                session=session,
-                tenant_id=payload.get("tenant_id", "unknown"),
-                event_type=f"ai_inference:{payload.get('task', 'unknown')}",
-                payload=payload,
-                user_id=payload.get("user_id"),
-            )
+        async def _audit_callback(payload: dict):
+            async with AsyncSessionLocal() as session:
+                await append_audit(
+                    session=session,
+                    tenant_id=payload.get("tenant_id", "unknown"),
+                    event_type=f"ai_inference:{payload.get('task', 'unknown')}",
+                    payload=payload,
+                    user_id=payload.get("user_id"),
+                )
 
-    get_orchestrator().set_audit_callback(_audit_callback)
-    logger.info("Audit log wired to AI orchestrator")
+        get_orchestrator().set_audit_callback(_audit_callback)
+        logger.info("Audit log wired to AI orchestrator")
+    except Exception as e:
+        logger.error("Audit wiring failed: %s", e)
 
     # Ensure Qdrant RAG collection exists (idempotent)
     try:
