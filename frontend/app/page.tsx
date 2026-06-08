@@ -891,6 +891,149 @@ export default function Home() {
     } catch {}
   }
 
+  // ── M7 Workflow state ──────────────────────────────────────────────────────
+  const [workflows, setWorkflows] = useState<any[]>([])
+  const [workflowsLoading, setWorkflowsLoading] = useState(false)
+  const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null)
+  const [workflowDetailLoading, setWorkflowDetailLoading] = useState(false)
+  const [showEscalateForm, setShowEscalateForm] = useState(false)
+  const [workflowEscalateForm, setWorkflowEscalateForm] = useState('')
+  const [workflowEscalateLoading, setWorkflowEscalateLoading] = useState(false)
+  const [workflowForm, setWorkflowForm] = useState({ title: '', trigger_source: '', severity: 'medium' })
+  const [workflowCreateLoading, setWorkflowCreateLoading] = useState(false)
+
+  useEffect(() => {
+    if (active === 'workflows') fetchWorkflows()
+  }, [active])
+
+  async function fetchWorkflows() {
+    setWorkflowsLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/workflow/`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setWorkflows(Array.isArray(data) ? data : [])
+    } catch { setWorkflows([]) } finally { setWorkflowsLoading(false) }
+  }
+
+  async function fetchWorkflowDetail(id: string) {
+    setSelectedWorkflow({ id })
+    setWorkflowDetailLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/workflow/${id}`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setSelectedWorkflow({
+        ...data,
+        id: data.workflow_id ?? id,
+        steps: (data.steps ?? []).map((s: any) => ({
+          ...s, id: s.step_id ?? s.id, order: s.order_index ?? s.order,
+        })),
+      })
+    } catch (e: any) { setSelectedWorkflow({ id, error: e.message }) }
+    finally { setWorkflowDetailLoading(false) }
+  }
+
+  async function createWorkflow() {
+    if (!workflowForm.title.trim()) return
+    setWorkflowCreateLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/workflow/remediation`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify(workflowForm),
+      })
+      const data = await res.json()
+      if (data.workflow_id || data.id) {
+        setWorkflowForm({ title: '', trigger_source: '', severity: 'medium' })
+        fetchWorkflows()
+        showToast('Workflow created.')
+      }
+    } catch {} finally { setWorkflowCreateLoading(false) }
+  }
+
+  async function createWorkflowFromAlert(alert: any) {
+    try {
+      await fetch(`${API_URL}/api/v1/workflow/remediation`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Remediation: ${alert.title ?? alert.alert_type ?? 'Alert'}`,
+          trigger_source: `alert:${alert.id ?? ''}`,
+          severity: (alert.severity ?? 'medium').toLowerCase(),
+        }),
+      })
+      showToast('Workflow created from alert.')
+      setActive('workflows')
+      fetchWorkflows()
+    } catch {}
+  }
+
+  async function completeWorkflowStep(workflowId: string, stepId: string) {
+    try {
+      await fetch(`${API_URL}/api/v1/workflow/${workflowId}/steps/${stepId}/complete`, {
+        method: 'POST',
+        headers: authHeaders(token),
+      })
+      fetchWorkflowDetail(workflowId)
+    } catch {}
+  }
+
+  async function approveWorkflowStep(workflowId: string, stepId: string) {
+    try {
+      await fetch(`${API_URL}/api/v1/workflow/${workflowId}/steps/${stepId}/approve`, {
+        method: 'POST',
+        headers: authHeaders(token),
+      })
+      fetchWorkflowDetail(workflowId)
+    } catch {}
+  }
+
+  async function escalateWorkflow(workflowId: string) {
+    if (!workflowEscalateForm.trim()) return
+    setWorkflowEscalateLoading(true)
+    try {
+      await fetch(`${API_URL}/api/v1/workflow/${workflowId}/escalate`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to: 'compliance_officer', reason: workflowEscalateForm }),
+      })
+      setShowEscalateForm(false)
+      setWorkflowEscalateForm('')
+      fetchWorkflowDetail(workflowId)
+    } catch {} finally { setWorkflowEscalateLoading(false) }
+  }
+
+  // ── M8 Predictive state ────────────────────────────────────────────────────
+  const [jurisdictionRisks, setJurisdictionRisks] = useState<any[]>([])
+  const [jurisdictionRisksLoading, setJurisdictionRisksLoading] = useState(false)
+  const [marketEntryForm, setMarketEntryForm] = useState({ business_model: '', countries: 'AR,BR,MX' })
+  const [marketEntryResult, setMarketEntryResult] = useState<any>(null)
+  const [marketEntryLoading, setMarketEntryLoading] = useState(false)
+
+  async function fetchJurisdictionRisks() {
+    setJurisdictionRisksLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/v1/predict/jurisdiction-risk`, { headers: authHeaders(token) })
+      const data = await res.json()
+      setJurisdictionRisks(Array.isArray(data) ? data : (data.risks ?? []))
+    } catch { setJurisdictionRisks([]) } finally { setJurisdictionRisksLoading(false) }
+  }
+
+  async function simulateMarketEntry() {
+    if (!marketEntryForm.business_model.trim()) return
+    setMarketEntryLoading(true)
+    setMarketEntryResult(null)
+    try {
+      const countries = marketEntryForm.countries.split(',').map(c => c.trim()).filter(Boolean)
+      const res = await fetch(`${API_URL}/api/v1/simulate/market-entry`, {
+        method: 'POST',
+        headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_model: marketEntryForm.business_model, target_countries: countries }),
+      })
+      setMarketEntryResult(await res.json())
+    } catch (e: any) { setMarketEntryResult({ error: e.message }) }
+    finally { setMarketEntryLoading(false) }
+  }
+
   // ── Login screen ───────────────────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
