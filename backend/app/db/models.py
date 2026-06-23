@@ -444,3 +444,80 @@ class Ticket(Base):
     __table_args__ = (
         Index("ix_tickets_tenant_status", "tenant_id", "status"),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PREMORTEM — FAILURE MODE & RISK ANALYSIS
+# ═══════════════════════════════════════════════════════════════════
+
+class FailureModeSeverity(str, enum.Enum):
+    CRITICAL = "critical"    # System down, data loss
+    HIGH = "high"            # Major functional loss
+    MEDIUM = "medium"        # Degradation, latency
+    LOW = "low"              # Minor impact
+
+
+class FailureModeStatus(str, enum.Enum):
+    IDENTIFIED = "identified"
+    MITIGATED = "mitigated"
+    RESOLVED = "resolved"
+    MONITORING = "monitoring"
+
+
+class PremortermFailureMode(Base):
+    __tablename__ = "premortem_failure_modes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    scenario = Column(String(500), nullable=False)  # e.g., "AI model fails to parse regulation PDFs"
+    description = Column(Text, nullable=False)      # Detailed failure description
+    impact = Column(Text, nullable=False)           # What breaks, who's affected
+    likelihood = Column(String(50), nullable=False) # high/medium/low
+    severity = Column(SAEnum(FailureModeSeverity), default=FailureModeSeverity.HIGH)
+    category = Column(String(100), nullable=False)  # e.g., "ai_reliability", "data_isolation", "crawler", "audit"
+    affected_modules = Column(JSONB, default=list)  # ["M1", "M4"]
+    status = Column(SAEnum(FailureModeStatus), default=FailureModeStatus.IDENTIFIED)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_premortem_tenant_category", "tenant_id", "category"),
+        Index("ix_premortem_severity", "severity"),
+    )
+
+
+class PremortermMitigation(Base):
+    __tablename__ = "premortem_mitigations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    failure_mode_id = Column(UUID(as_uuid=True), ForeignKey("premortem_failure_modes.id"), nullable=False)
+    mitigation = Column(Text, nullable=False)       # Specific action to prevent failure
+    owner = Column(String(255), nullable=True)      # Who's responsible
+    effort_estimate = Column(String(50), nullable=True)  # "1d", "1w", "2w"
+    priority = Column(Integer, default=0)           # Sort order
+    status = Column(String(50), default="pending")  # pending/in_progress/completed
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_premortem_mit_failure", "failure_mode_id"),
+    )
+
+
+class PremortermFinding(Base):
+    __tablename__ = "premortem_findings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=False)
+    finding_type = Column(String(100), nullable=False)  # "observation", "risk", "recommendation"
+    priority = Column(String(50), default="medium")     # critical/high/medium/low
+    related_failure_modes = Column(JSONB, default=list)  # [failure_mode_id, ...]
+    status = Column(String(50), default="open")         # open/acknowledged/addressed
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_premortem_finding_type", "finding_type"),
+    )
