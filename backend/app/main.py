@@ -21,6 +21,7 @@ from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.api.v1.router import router as v1_router
 from app.api.v1.m7_m8_router import router as m7_m8_router
 from app.api.v1.premortem_router import premortem_router
+from app.api.v1.transactions_router import router as transactions_router
 from app.db.base import Base, engine
 from app.middleware.rate_limit import limiter
 from app.middleware.metrics import setup_metrics
@@ -192,6 +193,7 @@ setup_metrics(app)
 app.include_router(v1_router)
 app.include_router(m7_m8_router)
 app.include_router(premortem_router)
+app.include_router(transactions_router)
 
 
 @app.get("/")
@@ -202,5 +204,5 @@ async def root():
         "environment": settings.app_env,
         "docs": "/docs",
         "api": "/api/v1",
-        "modules": ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"],
+        "modules": ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10"],
     }

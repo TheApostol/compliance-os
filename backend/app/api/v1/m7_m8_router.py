@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.auth import CurrentUser, get_current_user, require_admin
 from app.db.base import AsyncSessionLocal
 from app.db.models import Ticket, TicketPriority, TicketStatus
-from app.modules.workflows.engine import get_workflow_engine
+from app.modules.workflows.engine import WorkflowError, get_workflow_engine
 from app.modules.predictive.engine import get_predictive_engine
 from app.modules.crawler.latam_regulatory_crawler import crawl_latam_regulator
 
@@ -25,17 +25,62 @@ class WorkflowCreateRequest(BaseModel):
 
 @router.post('/workflow/remediation')
 async def create_remediation_workflow(req: WorkflowCreateRequest, current_user: CurrentUser = Depends(get_current_user)):
-    return await get_workflow_engine().create_remediation_workflow(
-        tenant_id=current_user.tenant_id,
-        title=req.title,
-        trigger_source=req.trigger_source,
-        severity=req.severity,
-    )
+    try:
+        return await get_workflow_engine().create_remediation_workflow(
+            tenant_id=current_user.tenant_id,
+            title=req.title,
+            trigger_source=req.trigger_source,
+            severity=req.severity,
+        )
+    except WorkflowError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get('/workflows')
+async def list_workflows(
+    status: Optional[str] = Query(default=None),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    return await get_workflow_engine().list_workflows(tenant_id=current_user.tenant_id, status=status)
+
+
+@router.get('/workflow/{workflow_id}')
+async def get_workflow(workflow_id: str, current_user: CurrentUser = Depends(get_current_user)):
+    wf = await get_workflow_engine().get_workflow(tenant_id=current_user.tenant_id, workflow_id=workflow_id)
+    if wf is None:
+        raise HTTPException(status_code=404, detail='Workflow not found')
+    return wf
+
+
+class WorkflowStepActionRequest(BaseModel):
+    action: str  # 'approve' | 'complete' | 'reject'
+
+
+@router.post('/workflow/{workflow_id}/steps/{step_id}/action')
+async def advance_workflow_step(
+    workflow_id: str,
+    step_id: str,
+    req: WorkflowStepActionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    try:
+        return await get_workflow_engine().advance_step(
+            tenant_id=current_user.tenant_id,
+            workflow_id=workflow_id,
+            step_id=step_id,
+            action=req.action,
+            user_id=current_user.user_id,
+        )
+    except WorkflowError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get('/predict/jurisdiction-risk')
 async def jurisdiction_risk_scores(current_user: CurrentUser = Depends(get_current_user)):
-    return await get_predictive_engine().jurisdiction_risk_scores()
+    return await get_predictive_engine().jurisdiction_risk_scores(
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.user_id,
+    )
 
 
 class ExpansionSimulationRequest(BaseModel):
@@ -48,6 +93,8 @@ async def simulate_market_entry(req: ExpansionSimulationRequest, current_user: C
     return await get_predictive_engine().simulate_market_entry(
         business_model=req.business_model,
         countries=req.countries,
+        tenant_id=current_user.tenant_id,
+        user_id=current_user.user_id,
     )
 
 

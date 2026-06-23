@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Column, String, Text, DateTime, Integer, Boolean,
+    Column, String, Text, DateTime, Integer, Boolean, Numeric,
     ForeignKey, Enum as SAEnum, Index, UniqueConstraint, func
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -443,6 +443,76 @@ class Ticket(Base):
 
     __table_args__ = (
         Index("ix_tickets_tenant_status", "tenant_id", "status"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# M10 — TRANSACTION MONITORING (AML)
+# ═══════════════════════════════════════════════════════════════════
+
+class TransactionStatus(str, enum.Enum):
+    PENDING = "pending"
+    CLEARED = "cleared"
+    FLAGGED = "flagged"
+    BLOCKED = "blocked"
+    REPORTED = "reported"
+
+
+class Transaction(Base):
+    """An inbound/outbound financial transaction screened for AML risk.
+
+    Persisted PENDING first, then scored synchronously by
+    TransactionMonitoringEngine.score_transaction so a record always exists
+    even if AI scoring fails (audit trail requirement, premortem F3/F5).
+    """
+    __tablename__ = "transactions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)
+
+    external_ref = Column(String(255), nullable=True)  # source system transaction id
+    subject_identifier = Column(String(255), nullable=False)  # customer/account id
+    counterparty_identifier = Column(String(255), nullable=True)
+    counterparty_country = Column(String(2), nullable=True)
+
+    amount = Column(Numeric(18, 2), nullable=False)
+    currency = Column(String(8), nullable=False)
+    channel = Column(String(32), nullable=False)  # wire | card | crypto | cash | ach
+    country = Column(String(2), nullable=False)
+    occurred_at = Column(DateTime(timezone=True), nullable=False)
+
+    status = Column(SAEnum(TransactionStatus), default=TransactionStatus.PENDING, index=True)
+    risk_score = Column(Integer, nullable=True)
+    risk_level = Column(SAEnum(RiskLevel), nullable=True, index=True)
+    rule_flags = Column(JSONB, default=list)      # deterministic rules triggered, e.g. ["velocity_24h", "high_risk_geo"]
+    ai_analysis = Column(JSONB, default=dict)     # raw AI typology/rationale output
+    case_id = Column(String(64), nullable=True)   # FK-style ref to compliance_cases.id, no hard FK (tenant_id type mismatch on that table)
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    scored_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_txn_tenant_subject", "tenant_id", "subject_identifier"),
+        Index("ix_txn_tenant_status", "tenant_id", "status"),
+        Index("ix_txn_tenant_occurred", "tenant_id", "occurred_at"),
+    )
+
+
+class TransactionRule(Base):
+    """Tenant-configurable deterministic AML rule (threshold/velocity/geography/structuring)."""
+    __tablename__ = "transaction_rules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    rule_code = Column(String(64), nullable=False)
+    rule_type = Column(String(32), nullable=False)  # amount_threshold | velocity | geography | structuring
+    description = Column(String(500), nullable=False)
+    config = Column(JSONB, default=dict)  # e.g. {"max_amount": 10000, "currency": "USD"}
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "rule_code", name="uq_rule_tenant_code"),
     )
 
 

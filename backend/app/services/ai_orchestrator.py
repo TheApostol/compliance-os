@@ -67,6 +67,10 @@ class TaskType(str, Enum):
     OCR_EXTRACTION = "ocr_extraction"
     RAG_RERANK = "rag_rerank"
 
+    # M8 — Predictive Risk
+    JURISDICTION_RISK = "jurisdiction_risk"
+    MARKET_ENTRY_SIM = "market_entry_sim"
+
     # Embeddings (separate API call, not chat completions)
     EMBEDDING = "embedding"
 
@@ -178,6 +182,10 @@ ROUTING: dict[TaskType, list[str]] = {
     # M6 — Evidence
     TaskType.OCR_EXTRACTION:       ["nemotron-super-49b", "kimi-k2"],
     TaskType.RAG_RERANK:           ["nemotron-nano-30b", "llama-3.3-70b"],
+
+    # M8 — Predictive Risk: reasoning-heavy, grounded with real regulation/obligation counts
+    TaskType.JURISDICTION_RISK:    ["nemotron-super-49b", "llama-3.3-70b", "minimax-m2"],
+    TaskType.MARKET_ENTRY_SIM:     ["nemotron-super-49b", "llama-3.3-70b", "minimax-m2"],
 
     # Multilingual ZH
     TaskType.MULTILINGUAL_ZH:      ["kimi-k2", "deepseek-v3.1-terminus", "minimax-m2"],

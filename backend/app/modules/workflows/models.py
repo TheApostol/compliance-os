@@ -33,8 +33,9 @@ class Workflow(Base):
     assigned_to = Column(String(128))
     metadata_json = Column('metadata', JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    steps = relationship('WorkflowStep', back_populates='workflow', cascade='all, delete-orphan')
+    steps = relationship('WorkflowStep', back_populates='workflow', cascade='all, delete-orphan', order_by='WorkflowStep.order_index')
 
 
 class WorkflowStep(Base):
@@ -48,7 +49,13 @@ class WorkflowStep(Base):
     requires_approval = Column(Boolean, default=False)
     completed = Column(Boolean, default=False)
     order_index = Column(Integer, default=0)
+    depends_on = Column(JSONB, default=list)  # list of order_index values this step is gated on
     payload = Column(JSONB, default=dict)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    due_at = Column(DateTime(timezone=True), nullable=True)
+    approved_by = Column(String(128), nullable=True)
+    escalated = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     workflow = relationship('Workflow', back_populates='steps')
