@@ -124,6 +124,14 @@ class Settings(BaseSettings):
     def has_nvidia(self) -> bool:
         return bool(self.nvidia_api_key and self.nvidia_api_key.startswith("nvapi-"))
 
+    @property
+    def has_anthropic(self) -> bool:
+        return bool(self.anthropic_api_key)
+
+    @property
+    def has_openrouter(self) -> bool:
+        return bool(self.openrouter_api_key)
+
 
 @lru_cache
 def get_settings() -> Settings:

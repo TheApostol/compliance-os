@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -150,7 +151,29 @@ MODELS: dict[str, ModelSpec] = {
         strengths=("balanced", "multimodal", "agentic"),
         notes="Replacement for 404'd mistral-large-2. MoE VLM.",
     ),
+
+    # ── TIER 3: cross-provider fallback (premortem F1/T1.1) ──────
+    # Only reached when every NVIDIA model in the chain has already failed.
+    "claude-sonnet-4-6": ModelSpec(
+        id="claude-sonnet-4-6",
+        provider="anthropic",
+        context_window=1_000_000,
+        ref_cost_per_1m_in=3.00, ref_cost_per_1m_out=15.00,
+        strengths=("reasoning", "fallback"),
+        notes="Anthropic fallback tier 2 — covers a total NVIDIA NIM outage.",
+    ),
+    "openrouter-llama-3.3-70b": ModelSpec(
+        id="meta-llama/llama-3.3-70b-instruct",
+        provider="openrouter",
+        ref_cost_per_1m_in=0.12, ref_cost_per_1m_out=0.30,
+        strengths=("fallback",),
+        notes="OpenRouter fallback tier 3 — catch-all if NVIDIA and Anthropic are both down.",
+    ),
 }
+
+# Appended to every routing chain below so an NVIDIA-wide outage degrades to
+# Anthropic, then OpenRouter, instead of a total inference failure (F1).
+CROSS_PROVIDER_FALLBACK_TAIL = ["claude-sonnet-4-6", "openrouter-llama-3.3-70b"]
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -190,6 +213,9 @@ ROUTING: dict[TaskType, list[str]] = {
     # Multilingual ZH
     TaskType.MULTILINGUAL_ZH:      ["kimi-k2", "deepseek-v3.1-terminus", "minimax-m2"],
 }
+
+for _chain in ROUTING.values():
+    _chain.extend(CROSS_PROVIDER_FALLBACK_TAIL)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -280,6 +306,21 @@ class AIOrchestrator:
             timeout=180.0,  # nemotron can take 70s+
         )
         self.rate_limiter = RateLimiter(rpm=s.nvidia_rate_limit_rpm)
+
+        # Fallback tiers (premortem F1/T1.1) — only constructed when configured.
+        self.anthropic_client = (
+            AsyncAnthropic(api_key=s.anthropic_api_key, timeout=180.0)
+            if s.has_anthropic else None
+        )
+        self.openrouter_client = (
+            AsyncOpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=s.openrouter_api_key,
+                timeout=180.0,
+            )
+            if s.has_openrouter else None
+        )
+
         self._audit_callback = None
 
     def set_audit_callback(self, callback):
@@ -288,8 +329,8 @@ class AIOrchestrator:
 
     async def infer(self, req: InferenceRequest) -> InferenceResult:
         """Main entry. Try primary model, fall back if it fails."""
-        if not self.settings.has_nvidia:
-            return self._fail(req, "NVIDIA_API_KEY not configured")
+        if not (self.settings.has_nvidia or self.settings.has_anthropic or self.settings.has_openrouter):
+            return self._fail(req, "No AI provider configured (NVIDIA/Anthropic/OpenRouter all missing)")
 
         # M5 — block prompt injection at the gateway
         injected, patterns = detect_injection(req.user_prompt)
@@ -305,10 +346,16 @@ class AIOrchestrator:
         last_error = None
 
         for model_key in chain:
-            chain_used.append(model_key)
             spec = MODELS.get(model_key)
             if not spec:
                 continue
+            if spec.provider == "nvidia" and not self.settings.has_nvidia:
+                continue
+            if spec.provider == "anthropic" and not self.settings.has_anthropic:
+                continue
+            if spec.provider == "openrouter" and not self.settings.has_openrouter:
+                continue
+            chain_used.append(model_key)
 
             try:
                 result = await self._call_model(spec, req, chain_used)
@@ -327,7 +374,28 @@ class AIOrchestrator:
         req: InferenceRequest,
         chain_used: list[str],
     ) -> InferenceResult:
-        await self.rate_limiter.acquire()
+        """Dispatch to the right provider SDK based on spec.provider."""
+        if spec.provider == "anthropic":
+            return await self._call_anthropic(spec, req, chain_used)
+        if spec.provider == "openrouter":
+            return await self._call_openai_compatible(
+                self.openrouter_client, spec, req, chain_used, rate_limiter=None,
+            )
+        return await self._call_openai_compatible(
+            self.client, spec, req, chain_used, rate_limiter=self.rate_limiter,
+        )
+
+    async def _call_openai_compatible(
+        self,
+        client: AsyncOpenAI,
+        spec: ModelSpec,
+        req: InferenceRequest,
+        chain_used: list[str],
+        rate_limiter: RateLimiter | None,
+    ) -> InferenceResult:
+        """Shared streaming call path for any OpenAI-compatible provider (NVIDIA, OpenRouter)."""
+        if rate_limiter:
+            await rate_limiter.acquire()
 
         messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": req.system},
@@ -338,7 +406,7 @@ class AIOrchestrator:
         ttft = 0.0
         chunks: list[str] = []
 
-        stream = await self.client.chat.completions.create(
+        stream = await client.chat.completions.create(
             model=spec.id,
             messages=messages,
             temperature=req.temperature,
@@ -371,6 +439,52 @@ class AIOrchestrator:
             model_used=spec.id,
             fallback_chain_used=chain_used,
             latency_ttft_ms=round(ttft, 1),
+            latency_total_ms=round(total_ms, 1),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            estimated_cost_usd=round(cost, 6),
+            audit_id=self._audit_id(req),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+
+    async def _call_anthropic(
+        self,
+        spec: ModelSpec,
+        req: InferenceRequest,
+        chain_used: list[str],
+    ) -> InferenceResult:
+        """Fallback call path via the Anthropic Messages API (non-streaming)."""
+        t_start = time.time()
+
+        response = await self.anthropic_client.messages.create(
+            model=spec.id,
+            max_tokens=req.max_tokens,
+            temperature=req.temperature,
+            system=req.system,
+            messages=[{"role": "user", "content": req.user_prompt}],
+        )
+
+        total_ms = (time.time() - t_start) * 1000
+        response_text = "".join(
+            block.text for block in response.content if block.type == "text"
+        )
+
+        tokens_in = response.usage.input_tokens
+        tokens_out = response.usage.output_tokens
+        cost = (
+            (tokens_in / 1_000_000) * spec.ref_cost_per_1m_in +
+            (tokens_out / 1_000_000) * spec.ref_cost_per_1m_out
+        )
+
+        parsed = self._try_parse_json(response_text) if req.json_mode else None
+
+        return InferenceResult(
+            success=True,
+            response_text=response_text,
+            parsed_json=parsed,
+            model_used=spec.id,
+            fallback_chain_used=chain_used,
+            latency_ttft_ms=round(total_ms, 1),  # non-streaming — no separate TTFT
             latency_total_ms=round(total_ms, 1),
             tokens_in=tokens_in,
             tokens_out=tokens_out,

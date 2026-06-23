@@ -40,7 +40,7 @@
 | **Phase 4** | W10-11 | Dashboard + integration tests | 2026-08-27 |
 | **Phase 5** | W12-13 | Hardening + compliance audit + rollout | 2026-09-10 |
 
-**Risk Score Trajectory:** 59/100 (baseline) → **55/100 (2026-06-23, post M7/M8/M10)** → 11/100 (target)
+**Risk Score Trajectory:** 59/100 (baseline) → 55/100 (post M7/M8/M10) → **51/100 (2026-06-23, post T1.1 fallback routing)** → 11/100 (target)
 
 ### 4. **Actionable Artifacts**
 
@@ -75,6 +75,14 @@
   corrected from NOT STARTED to DONE in `tasks/premortem.md`.
 - **Risk score recalculated:** 59 → 55/100 (see `tasks/premortem.md` Review & Updates for the
   per-dimension breakdown).
+- **T1.1 (Provider fallback routing) shipped:** `backend/app/services/ai_orchestrator.py` now
+  carries a 3-tier chain on every `ROUTING` entry — NVIDIA → Anthropic (`claude-sonnet-4-6`) →
+  OpenRouter (`llama-3.3-70b`). `infer()` skips unconfigured providers in the chain rather than
+  hard-failing the moment NVIDIA alone is unavailable; it only refuses outright if zero providers
+  are configured at all. Added `has_anthropic`/`has_openrouter` to `Settings`
+  (`app/core/config.py`) and `anthropic>=0.40.0` to `requirements.txt`. **F1 moved
+  IDENTIFIED → MITIGATED (70%)** — T1.2 (rate limiting) and T1.6 (circuit breaker) are still open,
+  and this path has not been integration-tested against a live NVIDIA outage. Risk score: 55 → 51/100.
 
 ---
 
@@ -158,15 +166,15 @@ curl -H "Authorization: Bearer <invalid-token>" http://localhost:8000/api/v1/hea
 
 ## Risk Scorecard Baseline
 
-### **Current State (recalculated 2026-06-23, post M7/M8/M10)**
+### **Current State (recalculated 2026-06-23, post M7/M8/M10/T1.1)**
 
 | Dimension | Score | Trend | Next Milestone |
 |---|---|---|---|
-| **Service Availability** | 42/100 | → | T1.1 (fallback routing) — untouched today |
+| **Service Availability** | 30/100 | ↓ | T1.2 (rate limiting) + T1.6 (circuit breaker) — improved by T1.1 fallback routing |
 | **Data Integrity** | 58/100 | → | T0.1-T0.4 (isolation + audit) — untouched today |
 | **Regulatory Compliance** | 68/100 | ↓ | T1.3 (data residency) — improved by JWT correction |
 | **Operational Stability** | 56/100 | ↓ | T1.2 (rate limiting) — improved by F9 resolution |
-| **OVERALL** | 55/100 | ↓ | → 47/100 after Phase 0 |
+| **OVERALL** | 51/100 | ↓ | → 47/100 after Phase 0 |
 
 **Target at Go-Live:** 11/100 (fully hardened, production-ready)
 

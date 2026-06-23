@@ -9,7 +9,7 @@
 
 ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATAM countries. Through a structured premortem exercise, we've identified **18 high-impact failure modes** and designed testable mitigations prioritized by regulatory impact and operational criticality.
 
-**Current Risk Score:** 59/100 → **55/100** (recalculated 2026-06-23, see Review & Updates) → **Target:** 11/100 (by 2026-08-06)
+**Current Risk Score:** 59/100 → 55/100 → **51/100** (recalculated 2026-06-23, see Review & Updates) → **Target:** 11/100 (by 2026-08-06)
 
 ---
 
@@ -19,7 +19,7 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 
 | ID | Scenario | Category | Severity | Status | Impact |
 |---|---|---|---|---|---|
-| **F1** | NVIDIA NIM outage → Complete service blackout | AI Reliability | 🔴 CRITICAL | IDENTIFIED | All M1/M3/M4/M5/M6 parsing stops; 429/503 errors; audit trail incomplete |
+| **F1** | NVIDIA NIM outage → Complete service blackout | AI Reliability | 🔴 CRITICAL | MITIGATED (70%) | All M1/M3/M4/M5/M6 parsing stops; 429/503 errors; audit trail incomplete — 3-tier fallback (NVIDIA→Anthropic→OpenRouter) shipped 2026-06-23, T1.2 rate limiting + T1.6 circuit breaker still open |
 | **F2** | Multi-tenant data isolation breach (Tenant A sees B's regulations) | Data Isolation | 🔴 CRITICAL | MITIGATED (60%) | Confidentiality breach; competitor access; regulatory violation |
 | **F3** | Audit chain tampering or hash corruption | Audit | 🔴 CRITICAL | IDENTIFIED | Audit log loses tamper-evidence; BCRA/UIF cannot trust compliance decisions |
 | **F4** | Regulatory crawler HTML parser breaks (BCRA/UIF redesign) | Crawler | 🟠 HIGH | MONITORING | Regulations stale (days→weeks); outdated compliance decisions |
@@ -66,9 +66,9 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 ---
 
 ### Phase 1: Resilience (W3-5) — Provider Failover + Rate Limiting
-**Goal:** Handle provider failures; protect rate limits; ensure deadlines work. **Status:** 🔴 NOT STARTED
+**Goal:** Handle provider failures; protect rate limits; ensure deadlines work. **Status:** 🟡 IN PROGRESS (T1.1 done)
 
-- [ ] **T1.1** Fallback routing (3-tier: NVIDIA → Anthropic → OpenRouter) | 3d | Backend | Depends: T0
+- [x] **T1.1** Fallback routing (3-tier: NVIDIA → Anthropic → OpenRouter) | 3d | Backend | ✓ DONE — `app/services/ai_orchestrator.py`: every `ROUTING` chain now carries a `claude-sonnet-4-6` → `openrouter-llama-3.3-70b` tail; `_call_model` dispatches per `ModelSpec.provider`; `infer()` skips unconfigured providers in the chain instead of hard-failing when NVIDIA alone is down. Resolves F1.
 - [ ] **T1.2** Token bucket rate limiter (40 RPM global budget, priority queue) | 4d | Backend | Depends: T1.1
 - [ ] **T1.3** Data residency enforcement (check `tenant.data_residency_policy` at inference) | 2d | Backend | Depends: T1.1
 - [ ] **T1.4** Timezone & deadline checker rewrite (convert deadline to tenant TZ) | 3d | Backend | Depends: -
@@ -221,6 +221,15 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
   F1/F2/F3/F5/F8/F10/F12/F18 are untouched and remain the path to 11/100). See
   `tasks/ai_os_architecture.md` for the architectural framing behind today's M7/M8/M10 work and
   a newly-flagged gap (M3/M4 have no deterministic fallback if AI fails, unlike M10).
+- **2026-06-23 (PM, cont'd):** T1.1 (provider fallback routing) shipped — `ai_orchestrator.py` now has a
+  3-tier chain (NVIDIA → Anthropic `claude-sonnet-4-6` → OpenRouter `llama-3.3-70b`) appended to every
+  `ROUTING` entry. `infer()` no longer hard-fails when NVIDIA alone is down; it skips unconfigured
+  providers in the chain and only fails if zero providers are configured at all. Added
+  `has_anthropic`/`has_openrouter` to `Settings` (`app/core/config.py`) and `anthropic>=0.40.0` to
+  `requirements.txt`. **F1 moved IDENTIFIED → MITIGATED (70%)** — not yet 100% because T1.2 (rate
+  limiting) and T1.6 (circuit breaker) are still open, and the new fallback path is untested against a
+  live NVIDIA outage (no integration test yet — tracked under T4.4). Risk score recalculated:
+  **55 → 51/100** (Service Availability 42→55 from the fallback path; other dimensions unchanged).
 - **Next Review:** 2026-07-01 (Phase 0 checkpoint)
 
 ---

@@ -32,23 +32,25 @@ async def seed_premortem():
         f1 = PremortermFailureMode(
             tenant_id=TENANT_ID,
             scenario="NVIDIA NIM API becomes unavailable or rate-limited",
-            description="Single-provider orchestrator; no fallback routing to Anthropic/OpenRouter; no local cache.",
+            description="3-tier fallback routing shipped 2026-06-23 (NVIDIA → Anthropic claude-sonnet-4-6 → "
+                         "OpenRouter llama-3.3-70b in app/services/ai_orchestrator.py); rate limiting, "
+                         "circuit breaker, and local cache still open.",
             impact="Regulatory parsing halts; AML/KYC screening fails; audit log entries incomplete; system returns 429/503.",
             likelihood="medium",
             severity=FailureModeSeverity.CRITICAL,
             category="ai_reliability",
             affected_modules=["M1", "M3", "M4", "M5", "M6"],
-            status=FailureModeStatus.IDENTIFIED,
+            status=FailureModeStatus.MITIGATED,
         )
         session.add(f1)
         await session.flush()
 
         # Mitigations for F1
-        for mit_text, owner, effort in [
-            ("Implement 3-tier fallback routing: NVIDIA → Anthropic → OpenRouter", "Backend", "3w"),
-            ("Add token bucket rate limiter with priority queue", "Backend", "1w"),
-            ("Implement request caching layer (Redis-backed)", "Backend", "1w"),
-            ("Add provider location metadata to enforce data residency", "Backend", "3d"),
+        for mit_text, owner, effort, mit_status in [
+            ("Implement 3-tier fallback routing: NVIDIA → Anthropic → OpenRouter", "Backend", "3w", "completed"),
+            ("Add token bucket rate limiter with priority queue", "Backend", "1w", "pending"),
+            ("Implement request caching layer (Redis-backed)", "Backend", "1w", "pending"),
+            ("Add provider location metadata to enforce data residency", "Backend", "3d", "pending"),
         ]:
             session.add(PremortermMitigation(
                 tenant_id=TENANT_ID,
@@ -57,6 +59,7 @@ async def seed_premortem():
                 owner=owner,
                 effort_estimate=effort,
                 priority=0,
+                status=mit_status,
             ))
 
         # F2: Multi-Tenant Data Isolation Breach
