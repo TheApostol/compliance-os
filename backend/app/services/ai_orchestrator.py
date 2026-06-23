@@ -177,6 +177,63 @@ CROSS_PROVIDER_FALLBACK_TAIL = ["claude-sonnet-4-6", "openrouter-llama-3.3-70b"]
 
 
 # ═══════════════════════════════════════════════════════════════════
+# DATA RESIDENCY (T1.3) — which providers a tenant's data may leave to
+# ═══════════════════════════════════════════════════════════════════
+#
+# Tenant.data_residency_policy (global | latam | ar | br) gates which
+# ModelSpec.provider values are eligible for that tenant. NVIDIA NIM is
+# the baseline provider for every policy; the Anthropic/OpenRouter
+# cross-provider fallback tier (a different vendor/jurisdiction) is only
+# eligible for tenants on the unrestricted "global" policy. Unknown
+# policy strings fall back to the most restrictive set (NVIDIA-only).
+RESIDENCY_ALLOWED_PROVIDERS: dict[str, frozenset[str]] = {
+    "global": frozenset({"nvidia", "anthropic", "openrouter"}),
+    "latam": frozenset({"nvidia"}),
+    "ar": frozenset({"nvidia"}),
+    "br": frozenset({"nvidia"}),
+}
+DEFAULT_RESIDENCY_PROVIDERS = RESIDENCY_ALLOWED_PROVIDERS["latam"]  # most restrictive
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CIRCUIT BREAKER (T1.6) — stop hammering a provider that's down
+# ═══════════════════════════════════════════════════════════════════
+
+class CircuitBreaker:
+    """Per-provider consecutive-failure counter. Opens after `threshold`
+    consecutive failures and skips that provider's models for `cooldown_s`
+    seconds, so a dead provider doesn't add latency to every request in
+    the chain — callers fall straight through to the next tier."""
+
+    def __init__(self, threshold: int = 5, cooldown_s: float = 60.0):
+        self.threshold = threshold
+        self.cooldown_s = cooldown_s
+        self._fail_counts: dict[str, int] = {}
+        self._opened_at: dict[str, float] = {}
+
+    def is_open(self, provider: str) -> bool:
+        opened_at = self._opened_at.get(provider)
+        if opened_at is None:
+            return False
+        if time.time() - opened_at >= self.cooldown_s:
+            # Cooldown elapsed — half-open: allow one probe through.
+            del self._opened_at[provider]
+            self._fail_counts[provider] = 0
+            return False
+        return True
+
+    def record_success(self, provider: str) -> None:
+        self._fail_counts[provider] = 0
+        self._opened_at.pop(provider, None)
+
+    def record_failure(self, provider: str) -> None:
+        count = self._fail_counts.get(provider, 0) + 1
+        self._fail_counts[provider] = count
+        if count >= self.threshold:
+            self._opened_at[provider] = time.time()
+
+
+# ═══════════════════════════════════════════════════════════════════
 # ROUTING TABLE — calibrated on benchmark results
 # ═══════════════════════════════════════════════════════════════════
 
@@ -322,10 +379,35 @@ class AIOrchestrator:
         )
 
         self._audit_callback = None
+        self._residency_cache: dict[str, str] = {}
+        self.circuit_breaker = CircuitBreaker()
 
     def set_audit_callback(self, callback):
         """Inject the audit logger from outside (avoids circular imports)."""
         self._audit_callback = callback
+
+    async def _get_residency_policy(self, tenant_id: str) -> str:
+        """Look up Tenant.data_residency_policy, cached per-process. On any
+        lookup failure (tenant missing, DB unreachable) fall back to "global"
+        — the same default the column itself has for an unspecified tenant —
+        rather than letting a transient DB error take down all inference."""
+        cached = self._residency_cache.get(tenant_id)
+        if cached is not None:
+            return cached
+        try:
+            from sqlalchemy import select
+            from app.db.base import AsyncSessionLocal
+            from app.db.models import Tenant
+
+            async with AsyncSessionLocal() as session:
+                stmt = select(Tenant.data_residency_policy).where(Tenant.slug == tenant_id)
+                policy = (await session.execute(stmt)).scalar_one_or_none()
+        except Exception:
+            policy = None
+
+        policy = policy or "global"
+        self._residency_cache[tenant_id] = policy
+        return policy
 
     async def infer(self, req: InferenceRequest) -> InferenceResult:
         """Main entry. Try primary model, fall back if it fails."""
@@ -341,6 +423,10 @@ class AIOrchestrator:
                 audit_tag="INJECTION_BLOCKED",
             )
 
+        # T1.3 — data residency: which providers may even be considered for this tenant
+        residency_policy = await self._get_residency_policy(req.tenant_id)
+        allowed_providers = RESIDENCY_ALLOWED_PROVIDERS.get(residency_policy, DEFAULT_RESIDENCY_PROVIDERS)
+
         chain = ROUTING.get(req.task, ["kimi-k2"])
         chain_used = []
         last_error = None
@@ -349,22 +435,36 @@ class AIOrchestrator:
             spec = MODELS.get(model_key)
             if not spec:
                 continue
+            if spec.provider not in allowed_providers:
+                continue
             if spec.provider == "nvidia" and not self.settings.has_nvidia:
                 continue
             if spec.provider == "anthropic" and not self.settings.has_anthropic:
                 continue
             if spec.provider == "openrouter" and not self.settings.has_openrouter:
                 continue
+            # T1.6 — circuit breaker: skip a provider that's been failing rather
+            # than eating its timeout again on every single request.
+            if self.circuit_breaker.is_open(spec.provider):
+                continue
             chain_used.append(model_key)
 
             try:
                 result = await self._call_model(spec, req, chain_used)
+                self.circuit_breaker.record_success(spec.provider)
                 await self._audit(req, result, status="OK")
                 return result
             except Exception as e:
+                self.circuit_breaker.record_failure(spec.provider)
                 last_error = f"{type(e).__name__}: {str(e)[:200]}"
                 continue
 
+        if not chain_used:
+            return self._fail(
+                req,
+                f"No eligible provider for residency policy '{residency_policy}' "
+                f"(allowed: {sorted(allowed_providers)}) or all circuits open",
+            )
         return self._fail(req, f"All fallbacks failed. Last: {last_error}",
                           chain_used=chain_used)
 

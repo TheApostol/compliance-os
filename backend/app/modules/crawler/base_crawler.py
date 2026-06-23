@@ -173,6 +173,7 @@ class BaseCrawler(ABC):
             title=title,
             text=text[:20000],
             tenant_id=tenant_id,
+            persist_as_global=True,
         )
 
         # Stamp source_hash on the newly created Regulation row so dedup works next run

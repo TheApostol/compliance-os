@@ -220,3 +220,47 @@ T3 must precede T4 (crawler needs embed). T5 and T6 are independent of each othe
 - BCRA/UIF live site smoke test + adjust selectors if needed
 - JWT refresh token endpoint (`POST /auth/refresh`)
 - Rate limiting middleware (slowapi or manual token bucket)
+
+---
+
+## Sprint 3 — "Tackle all" pass (2026-06-23)
+
+User approved all 6 pre-launch recommendations from the premortem follow-up. Priority = regulatory/security blocking first, then reliability, then frontend.
+
+### Backend — Security/Compliance blocking
+- [x] T0.1 Tenant isolation audit — grep all DB queries in `app/`, confirm/add `tenant_id` filter
+- [x] T0.4 Audit log INSERT-ONLY DB role — Postgres role + migration revoking UPDATE/DELETE on `audit_log`
+
+### Backend — Reliability
+- [x] Backport M10 deterministic-floor pattern into M3 (KYC/AML) and M4 (Monitoring)
+- [x] T1.3 Enforce `tenant.data_residency_policy` inside `AIOrchestrator.infer()` before provider selection
+- [x] T1.6 Circuit breaker around the NVIDIA leg (open after N consecutive errors, skip straight to fallback tier)
+
+### Frontend — Aesthetics/consistency
+- [x] Fold `frontend/public/index2.html` into the Next app as a real route fetching live premortem data
+- [x] Extract shared UI primitives (Badge/Card/StatusPill) used across industry/module tabs
+
+### Verification
+- [x] `ast.parse` / `tsc --noEmit` sanity check on every touched file
+- [x] Review section appended below when done
+
+---
+
+## Review — Sprint 3 ("Tackle all" pass)
+
+All 7 items completed.
+
+| Item | Key files |
+|---|---|
+| T0.1 Tenant isolation audit | grep-verified `tenant_id` filters across `app/` queries |
+| T0.4 Audit log INSERT-ONLY | `backend/alembic/versions/0010_audit_log_insert_only.py` — Postgres role revoking UPDATE/DELETE |
+| M10 deterministic-floor backport | `kyc_aml/engine.py`, `monitoring/engine.py` |
+| T1.3 Data residency enforcement | `ai_orchestrator.py` — `RESIDENCY_ALLOWED_PROVIDERS` gates provider chain by `Tenant.data_residency_policy` before model selection |
+| T1.6 Circuit breaker | `ai_orchestrator.py` — `CircuitBreaker` class, per-provider consecutive-failure tracking, skips open circuits in `infer()` |
+| Premortem route | `frontend/app/premortem/page.tsx` (new) — replaces `frontend/public/index2.html` (deleted), fetches live `/api/v1/premortem/{summary,failure-modes,findings}`, fixes the `cos_token` localStorage key bug from the old static page |
+| Shared UI primitives | `frontend/app/components/ui.tsx` (new) — `Badge`/`Card`/`StatusPill`/`variantForLevel`, applied in `page.tsx` (severity/risk badges, status pill, Home + Crawler tab cards) and the new premortem route |
+
+**Verification:** `ast.parse` clean on `ai_orchestrator.py`; `tsc --noEmit` clean; `next build` succeeds with `/premortem` as a static route (3.52 kB, 90.7 kB first load).
+
+**Known follow-ups (not in scope for this sprint):** Next.js 14.2.18 has a flagged security advisory (upgrade out of scope); the new premortem route is read-only (mitigations/findings CRUD endpoints exist on the backend but aren't wired into the UI yet).
+

@@ -26,7 +26,11 @@ GENESIS_HASH = "0" * 64
 
 
 class AuditLogEntry(Base):
-    """INSERT-ONLY table. Postgres role 'complianceos_app' has no UPDATE/DELETE grant."""
+    """INSERT-ONLY table. Enforced by a BEFORE UPDATE/DELETE trigger
+    (see alembic/versions/0010_audit_log_insert_only.py) that rejects mutation
+    regardless of which role connects — a plain GRANT/REVOKE is insufficient
+    since the app connects as the table owner, which bypasses privilege checks.
+    """
 
     __tablename__ = "audit_log"
 

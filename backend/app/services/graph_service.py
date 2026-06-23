@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy import select, text
 from app.db.base import AsyncSessionLocal
-from app.db.models import GraphVertex, GraphEdge, ComplianceEntity, EntityType, Obligation
+from app.db.models import GraphVertex, GraphEdge, ComplianceEntity, EntityType, Obligation, Regulation
 
 logger = logging.getLogger(__name__)
 
@@ -164,12 +164,24 @@ class GraphService:
     async def get_regulation_subgraph(
         self,
         regulation_id: str,
+        tenant_id: str,
     ) -> dict[str, Any]:
         """
         Return all vertices and edges reachable from a regulation vertex
         using a recursive CTE (BFS up to depth 3).
+
+        Tenant-scoped: the regulation must belong to the caller's tenant or
+        be shared/global (tenant_id IS NULL) — prevents reading another
+        tenant's private regulation subgraph via a guessed/leaked UUID.
         """
         async with AsyncSessionLocal() as session:
+            reg_stmt = select(Regulation.id).where(
+                Regulation.id == regulation_id,
+                (Regulation.tenant_id == tenant_id) | (Regulation.tenant_id.is_(None)),
+            )
+            if (await session.execute(reg_stmt)).scalar_one_or_none() is None:
+                return {"error": "Regulation not found in graph"}
+
             # Find regulation vertex
             stmt = select(GraphVertex).where(
                 GraphVertex.vertex_type == "regulation",
@@ -240,10 +252,24 @@ class GraphService:
     async def get_obligations_for_entity(
         self,
         entity_id: str,
+        tenant_id: str,
         entity_type: str = "entity",
     ) -> dict[str, Any]:
-        """Return all obligations that apply to a given entity."""
+        """Return all obligations that apply to a given entity.
+
+        Tenant-scoped: the entity must belong to the caller's tenant —
+        prevents reading another tenant's compliance obligations via a
+        guessed/leaked entity UUID.
+        """
         async with AsyncSessionLocal() as session:
+            if entity_type == "entity":
+                owner_stmt = select(ComplianceEntity.id).where(
+                    ComplianceEntity.id == entity_id,
+                    ComplianceEntity.tenant_id == tenant_id,
+                )
+                if (await session.execute(owner_stmt)).scalar_one_or_none() is None:
+                    return {"error": "Entity not found in graph", "obligations": []}
+
             stmt = select(GraphVertex).where(
                 GraphVertex.vertex_type == entity_type,
                 GraphVertex.entity_id == entity_id,

@@ -46,6 +46,42 @@ DRIFT_SCHEMA = """{
   "remediation_plan": ["medium-term remediation steps"]
 }"""
 
+VELOCITY_MAX_COUNT = 5
+VELOCITY_MAX_SUM = 15000
+CTR_THRESHOLD = 10000
+
+
+def _deterministic_anomaly_floor(summary: dict[str, Any]) -> tuple[list[str], int]:
+    """Rule-based floor over an aggregate transaction summary — keeps anomaly
+    detection from failing open ("no anomalies") if the AI call fails."""
+    flags: list[str] = []
+    score = 0
+
+    count = summary.get("transaction_count") or summary.get("count") or 0
+    total = summary.get("total_amount") or summary.get("total") or 0
+    try:
+        count, total = int(count), float(total)
+    except (TypeError, ValueError):
+        count, total = 0, 0.0
+
+    if count >= VELOCITY_MAX_COUNT or total >= VELOCITY_MAX_SUM:
+        flags.append("velocity_threshold")
+        score += 30
+
+    max_single = summary.get("max_single_amount") or 0
+    try:
+        if float(max_single) >= CTR_THRESHOLD:
+            flags.append("ctr_threshold")
+            score += 30
+    except (TypeError, ValueError):
+        pass
+
+    if summary.get("high_risk_geography_flag") or summary.get("high_risk_countries"):
+        flags.append("high_risk_geography")
+        score += 25
+
+    return flags, min(score, 100)
+
 
 class MonitoringEngine:
     def __init__(self, orchestrator: AIOrchestrator | None = None):
@@ -58,9 +94,11 @@ class MonitoringEngine:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Analyze a transaction pattern summary for AML anomalies."""
+        rule_flags, rule_score = _deterministic_anomaly_floor(transaction_summary)
         prompt = (
             f"Transaction pattern (last 30 days):\n"
             f"{self._fmt(transaction_summary)}\n\n"
+            f"Deterministic rules already triggered: {rule_flags or 'none'}\n\n"
             f"Analyze for AML anomalies. Return JSON:\n{ANOMALY_SCHEMA}"
         )
         result = await self.orch.infer(InferenceRequest(
@@ -72,7 +110,7 @@ class MonitoringEngine:
             temperature=0.1,
             max_tokens=1536,
         ))
-        return self._result(result)
+        return self._result(result, rule_flags, rule_score)
 
     async def detect_drift(
         self,
@@ -96,19 +134,47 @@ class MonitoringEngine:
             temperature=0.1,
             max_tokens=1536,
         ))
-        return self._result(result)
+        analysis = result.parsed_json or {}
+        if not result.success:
+            # Never fail open: if the AI couldn't run, we have no basis to claim
+            # "no drift" — flag it as unknown/high severity for human review.
+            analysis = {
+                "drift_detected": True,
+                "drift_severity": "UNKNOWN_AI_UNAVAILABLE",
+                "remediation_plan": ["Manual policy-vs-logs review required — AI analysis unavailable"],
+            }
+        return self._result(result, analysis=analysis)
 
     @staticmethod
     def _fmt(d: dict) -> str:
         return "\n".join(f"- {k}: {v}" for k, v in d.items())
 
     @staticmethod
-    def _result(r) -> dict[str, Any]:
-        return {
+    def _result(
+        r,
+        rule_flags: list[str] | None = None,
+        rule_score: int | None = None,
+        analysis: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        ai_analysis = analysis if analysis is not None else (r.parsed_json or {})
+        out: dict[str, Any] = {
             "success": r.success,
-            "analysis": r.parsed_json or {},
+            "analysis": ai_analysis,
             "audit_id": r.audit_id,
             "model_used": r.model_used,
             "latency_ms": r.latency_total_ms,
             "error": r.error,
         }
+        if rule_flags is not None:
+            ai_score = ai_analysis.get("anomaly_score")
+            if r.success and isinstance(ai_score, (int, float)):
+                final_score = round(0.4 * rule_score + 0.6 * ai_score)
+            else:
+                # AI unavailable or returned no score — fall back to the
+                # deterministic floor instead of an empty analysis.
+                final_score = rule_score
+            out["rule_flags"] = rule_flags
+            out["anomaly_score"] = final_score
+            if not r.success:
+                out["investigation_priority"] = "HIGH" if (rule_flags or final_score >= 35) else "MEDIUM"
+        return out

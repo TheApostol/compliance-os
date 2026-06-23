@@ -166,8 +166,14 @@ class RegulatoryIntelligence:
         text: str,
         tenant_id: str,
         user_id: str | None = None,
+        persist_as_global: bool = False,
     ) -> dict[str, Any]:
-        """Convert raw regulatory text into structured obligations."""
+        """Convert raw regulatory text into structured obligations.
+
+        persist_as_global=True stores the Regulation as shared reference data
+        (tenant_id=NULL) instead of private to the calling tenant — use this
+        for crawler-ingested regulator publications (BCRA, UIF, etc.).
+        """
         truncated = text[:20000]  # leave room for context window
 
         system_prompt = self._build_system_prompt(country, regulator)
@@ -201,6 +207,8 @@ class RegulatoryIntelligence:
                 title=title, text=text,
                 obligations_data=obligations_data,
                 model_used=result.model_used,
+                tenant_id=tenant_id,
+                persist_as_global=persist_as_global,
             )
 
         # Index in Qdrant for RAG — best-effort, non-blocking
@@ -259,8 +267,15 @@ class RegulatoryIntelligence:
         text: str,
         obligations_data: list[dict],
         model_used: str,
+        tenant_id: str | None = None,
+        persist_as_global: bool = False,
     ) -> tuple[int, str | None]:
-        """Upsert regulation + insert obligations. Returns (count, regulation_id)."""
+        """Upsert regulation + insert obligations. Returns (count, regulation_id).
+
+        Regulation rows are tenant-scoped by default (tenant_id == caller's tenant);
+        pass persist_as_global=True for crawler-ingested regulator publications that
+        are shared reference data across all tenants (tenant_id = NULL).
+        """
         from app.db.base import AsyncSessionLocal
         from app.db.models import (
             Regulation, Obligation,
@@ -271,19 +286,24 @@ class RegulatoryIntelligence:
         VALID_FREQ = {e.value for e in ObligationFrequency}
         VALID_SEV  = {e.value for e in ObligationSeverity}
 
+        effective_tenant_id = None if persist_as_global else tenant_id
+
         try:
             async with AsyncSessionLocal() as session:
-                # Find or create regulation
+                # Find or create regulation — scoped to this tenant (or NULL for global)
                 stmt = select(Regulation).where(
                     Regulation.country == country,
                     Regulation.regulator == regulator,
                     Regulation.code == code,
+                    Regulation.tenant_id.is_(None) if effective_tenant_id is None
+                    else Regulation.tenant_id == effective_tenant_id,
                 )
                 reg = (await session.execute(stmt)).scalar_one_or_none()
 
                 if reg is None:
                     reg = Regulation(
                         id=uuid.uuid4(),
+                        tenant_id=effective_tenant_id,
                         country=country,
                         regulator=regulator,
                         code=code,

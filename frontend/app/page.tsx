@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Badge, Card, StatusPill, variantForLevel } from './components/ui'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -143,20 +144,6 @@ function authHeaders(token: string | null, industryContext?: string): HeadersIni
 function tryParseJSON(str: string): [any, string | null] {
   try { return [JSON.parse(str), null] }
   catch (e: any) { return [null, e.message] }
-}
-
-const SEVERITY_COLORS: Record<string, string> = {
-  HIGH: 'bg-red-950 text-red-300 border border-red-900',
-  MEDIUM: 'bg-yellow-950 text-yellow-300 border border-yellow-900',
-  LOW: 'bg-zinc-800 text-zinc-300 border border-zinc-700',
-  CRITICAL: 'bg-red-950 text-red-200 border border-red-800',
-}
-
-const RISK_COLORS: Record<string, string> = {
-  LOW: 'bg-green-950 text-green-300 border border-green-900',
-  MEDIUM: 'bg-yellow-950 text-yellow-300 border border-yellow-900',
-  HIGH: 'bg-orange-950 text-orange-300 border border-orange-900',
-  CRITICAL: 'bg-red-950 text-red-300 border border-red-900',
 }
 
 export default function Home() {
@@ -1541,9 +1528,9 @@ export default function Home() {
                                     <span className="text-xs text-zinc-500">{ob.obligation_type}</span>
                                   )}
                                   {ob.severity && (
-                                    <span className={`text-xs px-1.5 py-0.5 rounded ${SEVERITY_COLORS[ob.severity] ?? 'bg-zinc-800 text-zinc-300'}`}>
+                                    <Badge variant={variantForLevel(ob.severity)} size="sm">
                                       {ob.severity}
-                                    </span>
+                                    </Badge>
                                   )}
                                 </div>
                                 {ob.description && (
@@ -1680,9 +1667,9 @@ export default function Home() {
                       <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
                         <div className="flex items-center gap-3 flex-wrap">
                           {kycScreenResult.risk_level && (
-                            <span className={`px-2.5 py-1 rounded text-sm font-medium ${RISK_COLORS[kycScreenResult.risk_level] ?? 'bg-zinc-800 text-zinc-300'}`}>
+                            <Badge variant={variantForLevel(kycScreenResult.risk_level)} size="lg">
                               {kycScreenResult.risk_level}
-                            </span>
+                            </Badge>
                           )}
                           {kycScreenResult.ai_risk_score !== undefined && (
                             <span className="text-sm text-zinc-400">
@@ -1819,9 +1806,9 @@ export default function Home() {
                       <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
                         <div className="flex items-center gap-3">
                           {monTxResult.risk_level && (
-                            <span className={`px-2.5 py-1 rounded text-sm font-medium ${RISK_COLORS[monTxResult.risk_level] ?? 'bg-zinc-800 text-zinc-300'}`}>
+                            <Badge variant={variantForLevel(monTxResult.risk_level)} size="lg">
                               {monTxResult.risk_level}
-                            </span>
+                            </Badge>
                           )}
                         </div>
                         {Array.isArray(monTxResult.anomalies) && monTxResult.anomalies.length > 0 && (
@@ -3178,20 +3165,20 @@ export default function Home() {
 
               {crawlerStatus && !crawlerStatus.error && (
                 <div className="grid grid-cols-3 gap-4 mb-8">
-                  <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md">
+                  <Card className="bg-zinc-900">
                     <div className="text-xs text-zinc-500 mb-1">Status</div>
                     <div className={`text-sm font-medium ${crawlerStatus.enabled ? 'text-green-400' : 'text-zinc-400'}`}>
                       {crawlerStatus.enabled ? 'Enabled' : 'Disabled'}
                     </div>
-                  </div>
-                  <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md">
+                  </Card>
+                  <Card className="bg-zinc-900">
                     <div className="text-xs text-zinc-500 mb-1">BCRA schedule</div>
                     <div className="text-sm font-mono text-zinc-300">{crawlerStatus.bcra_schedule ?? crawlerStatus.schedules?.BCRA ?? '6h'}</div>
-                  </div>
-                  <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md">
+                  </Card>
+                  <Card className="bg-zinc-900">
                     <div className="text-xs text-zinc-500 mb-1">UIF schedule</div>
                     <div className="text-sm font-mono text-zinc-300">{crawlerStatus.uif_schedule ?? crawlerStatus.schedules?.UIF ?? '12h'}</div>
-                  </div>
+                  </Card>
                 </div>
               )}
 
@@ -3283,15 +3270,18 @@ export default function Home() {
                     <p className="text-xs text-zinc-500 mt-1">{industryCfg.regulators}</p>
                   </div>
                   <div className="text-right flex flex-col items-end gap-2">
-                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${dashHealth ? 'bg-green-900/50 text-green-400 border border-green-800' : 'bg-zinc-800 text-zinc-500 border border-zinc-700'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${dashHealth ? 'bg-green-400' : 'bg-zinc-500'}`} />
-                      {dashHealth ? 'Systems Online' : 'Connecting...'}
-                    </div>
+                    <StatusPill active={dashHealth} activeLabel="Systems Online" inactiveLabel="Connecting..." />
                     <button
                       onClick={() => { window.location.href = '/dashboard' }}
                       style={{ background: '#FFE135', color: '#0A0A0A', border: 'none', borderRadius: 12, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                       🍋 Open Lemon Cash Dashboard →
+                    </button>
+                    <button
+                      onClick={() => { window.location.href = '/premortem' }}
+                      className="text-xs text-zinc-500 hover:text-zinc-300 underline"
+                    >
+                      🔍 Premortem Analysis →
                     </button>
                     <div className="text-xs text-zinc-600">tenant: polkorp</div>
                   </div>
@@ -3300,30 +3290,30 @@ export default function Home() {
 
               {/* Live stat tiles */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-                <div className="border border-zinc-800 rounded-lg p-4">
+                <Card>
                   <div className="text-2xl md:text-3xl font-mono font-bold mb-1">
                     {industryCfg.modules.length - 1}
                   </div>
                   <div className="text-xs text-zinc-500">Active Modules</div>
-                </div>
-                <div className="border border-zinc-800 rounded-lg p-4">
+                </Card>
+                <Card>
                   <div className="text-2xl md:text-3xl font-mono font-bold mb-1 text-blue-400">
                     {dashRegCount ?? <span className="text-zinc-600 text-lg">—</span>}
                   </div>
                   <div className="text-xs text-zinc-500">Regulations Indexed</div>
-                </div>
-                <div className="border border-zinc-800 rounded-lg p-4">
+                </Card>
+                <Card>
                   <div className="text-2xl md:text-3xl font-mono font-bold mb-1 text-yellow-400">
                     {dashTicketCount ?? <span className="text-zinc-600 text-lg">—</span>}
                   </div>
                   <div className="text-xs text-zinc-500">Open Tickets</div>
-                </div>
-                <div className="border border-zinc-800 rounded-lg p-4">
+                </Card>
+                <Card>
                   <div className="text-2xl md:text-3xl font-mono font-bold mb-1 text-zinc-300">
                     {dashAuditCount ?? <span className="text-zinc-600 text-lg">—</span>}
                   </div>
                   <div className="text-xs text-zinc-500">Audit Events</div>
-                </div>
+                </Card>
               </div>
 
               {/* Module quick-access — industry filtered */}
@@ -3331,23 +3321,21 @@ export default function Home() {
                 <div className="text-xs uppercase tracking-wider text-zinc-500 mb-3">Modules</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {industryCfg.modules.filter(m => m.id !== 'home').map(m => (
-                    <button
-                      key={m.id}
-                      onClick={() => setActive(m.id)}
-                      className="border border-zinc-800 rounded-lg p-4 text-left hover:bg-zinc-900 transition group"
-                    >
-                      <div className="text-sm font-medium mb-1 group-hover:text-white transition">{m.label}</div>
-                      <div className="text-xs text-zinc-500">{m.desc}</div>
+                    <button key={m.id} onClick={() => setActive(m.id)} className="text-left">
+                      <Card className="hover:bg-zinc-900 transition group">
+                        <div className="text-sm font-medium mb-1 group-hover:text-white transition">{m.label}</div>
+                        <div className="text-xs text-zinc-500">{m.desc}</div>
+                      </Card>
                     </button>
                   ))}
                 </div>
               </div>
 
               {/* AI context pill */}
-              <div className="border border-zinc-800 rounded-lg p-4 text-xs text-zinc-500">
+              <Card className="text-xs text-zinc-500">
                 <span className="text-zinc-400 font-medium">AI context: </span>
                 {industryCfg.aiContext}
-              </div>
+              </Card>
             </div>
           )}
 

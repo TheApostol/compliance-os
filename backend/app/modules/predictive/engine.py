@@ -61,7 +61,10 @@ class PredictiveEngine:
         async with AsyncSessionLocal() as session:
             stmt = (
                 select(Regulation.country, func.count(Regulation.id))
-                .where(Regulation.published_at >= cutoff)
+                .where(
+                    Regulation.published_at >= cutoff,
+                    (Regulation.tenant_id == tenant_id) | (Regulation.tenant_id.is_(None)),
+                )
                 .group_by(Regulation.country)
             )
             result = await session.execute(stmt)
@@ -123,7 +126,10 @@ class PredictiveEngine:
             stmt = (
                 select(Regulation.country, func.count(Obligation.id))
                 .join(Obligation, Obligation.regulation_id == Regulation.id)
-                .where(Regulation.country.in_(countries))
+                .where(
+                    Regulation.country.in_(countries),
+                    (Regulation.tenant_id == tenant_id) | (Regulation.tenant_id.is_(None)),
+                )
                 .group_by(Regulation.country)
             )
             result = await session.execute(stmt)

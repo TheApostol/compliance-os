@@ -725,17 +725,25 @@ async def graph_stats():
 
 
 @router.get("/graph/regulation/{regulation_id}")
-async def graph_regulation_subgraph(regulation_id: str):
+async def graph_regulation_subgraph(
+    regulation_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    _user: CurrentUser = Depends(get_current_user),
+):
     """Return the compliance subgraph rooted at a regulation (BFS depth 3)."""
     from app.services.graph_service import get_graph
-    return await get_graph().get_regulation_subgraph(regulation_id=regulation_id)
+    return await get_graph().get_regulation_subgraph(regulation_id=regulation_id, tenant_id=tenant_id)
 
 
 @router.get("/graph/entity/{entity_id}/obligations")
-async def graph_entity_obligations(entity_id: str):
+async def graph_entity_obligations(
+    entity_id: str,
+    tenant_id: str = Depends(get_tenant_id),
+    _user: CurrentUser = Depends(get_current_user),
+):
     """Return all obligations that apply to a given entity in the graph."""
     from app.services.graph_service import get_graph
-    return await get_graph().get_obligations_for_entity(entity_id=entity_id)
+    return await get_graph().get_obligations_for_entity(entity_id=entity_id, tenant_id=tenant_id)
 
 
 class RegisterEntityRequest(BaseModel):

@@ -52,6 +52,47 @@ SCREENING_SCHEMA = """{
   "rationale": "str"
 }"""
 
+# Deterministic floor — FATF/OFAC-adjacent high-risk jurisdictions and PEP indicators.
+# Runs independently of the AI call so a KYC/sanctions decision never fails open
+# (returns "no risk found") just because the AI provider chain is down.
+HIGH_RISK_COUNTRIES = {"IR", "KP", "SY", "MM", "AF", "CU", "VE"}
+PEP_KEYWORDS = {"senator", "minister", "deputy", "judge", "governor", "president", "ambassador", "mp"}
+
+
+def _deterministic_kyc_floor(data: dict[str, Any]) -> tuple[list[str], int]:
+    flags: list[str] = []
+    score = 0
+
+    country = str(data.get("country", "")).upper()
+    if country in HIGH_RISK_COUNTRIES:
+        flags.append("high_risk_jurisdiction")
+        score += 40
+
+    occupation = str(data.get("occupation", "")).lower()
+    if any(kw in occupation for kw in PEP_KEYWORDS):
+        flags.append("pep_indicator")
+        score += 30
+
+    if data.get("pep") or data.get("sanctions_list_hit"):
+        flags.append("declared_sanctions_or_pep")
+        score += 50
+
+    if data.get("adverse_media"):
+        flags.append("adverse_media")
+        score += 20
+
+    return flags, min(score, 100)
+
+
+def _risk_level_for_score(score: int) -> str:
+    if score >= 80:
+        return "CRITICAL"
+    if score >= 60:
+        return "HIGH"
+    if score >= 35:
+        return "MEDIUM"
+    return "LOW"
+
 
 class KYCAMLEngine:
     def __init__(self, orchestrator: AIOrchestrator | None = None):
@@ -64,8 +105,10 @@ class KYCAMLEngine:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Run a full KYC risk assessment."""
+        rule_flags, rule_score = _deterministic_kyc_floor(customer_data)
         prompt = (
             f"Customer profile:\n{self._format_dict(customer_data)}\n\n"
+            f"Deterministic rules already triggered: {rule_flags or 'none'}\n\n"
             f"Perform comprehensive KYC/AML risk assessment.\n\n"
             f"Return JSON:\n{KYC_SCHEMA}"
         )
@@ -78,7 +121,7 @@ class KYCAMLEngine:
             temperature=0.1,
             max_tokens=2048,
         ))
-        return self._format_result(result)
+        return self._format_result(result, rule_flags, rule_score)
 
     async def sanctions_screen(
         self,
@@ -87,8 +130,10 @@ class KYCAMLEngine:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Sanctions and PEP screening."""
+        rule_flags, rule_score = _deterministic_kyc_floor(subject_data)
         prompt = (
             f"Subject:\n{self._format_dict(subject_data)}\n\n"
+            f"Deterministic rules already triggered: {rule_flags or 'none'}\n\n"
             f"Screen for OFAC SDN, UN, EU, FATF exposure.\n\n"
             f"Return JSON:\n{SCREENING_SCHEMA}"
         )
@@ -101,17 +146,35 @@ class KYCAMLEngine:
             temperature=0.1,
             max_tokens=1536,
         ))
-        return self._format_result(result)
+        return self._format_result(result, rule_flags, rule_score)
 
     @staticmethod
     def _format_dict(d: dict) -> str:
         return "\n".join(f"- {k}: {v}" for k, v in d.items())
 
     @staticmethod
-    def _format_result(result) -> dict[str, Any]:
+    def _format_result(result, rule_flags: list[str], rule_score: int) -> dict[str, Any]:
+        ai_analysis = result.parsed_json or {}
+        ai_score = ai_analysis.get("risk_score")
+
+        if result.success and isinstance(ai_score, (int, float)):
+            final_score = round(0.4 * rule_score + 0.6 * ai_score)
+        else:
+            # AI unavailable or returned no score — never fail open. Fall back
+            # to the deterministic floor alone instead of an empty analysis.
+            final_score = rule_score
+
+        recommended_action = ai_analysis.get("recommended_action") or ai_analysis.get("recommendation")
+        if not result.success:
+            recommended_action = "ESCALATE" if (rule_flags or final_score >= 35) else "EDD"
+
         return {
             "success": result.success,
-            "analysis": result.parsed_json or {},
+            "analysis": ai_analysis,
+            "rule_flags": rule_flags,
+            "risk_score": final_score,
+            "risk_level": _risk_level_for_score(final_score),
+            "recommended_action": recommended_action,
             "audit_id": result.audit_id,
             "model_used": result.model_used,
             "latency_ms": result.latency_total_ms,
