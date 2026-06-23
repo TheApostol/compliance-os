@@ -48,6 +48,19 @@ async def get_user_id(user: CurrentUser = Depends(get_current_user)) -> str | No
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Industry resolver — X-Industry header drives industry-conditional
+# prompts/schemas in copilot + monitoring. Defaults to financial
+# (the original, pre-multi-industry behavior) when absent/invalid.
+# ═══════════════════════════════════════════════════════════════════
+
+VALID_INDUSTRIES = {"financial", "insurance", "healthcare", "corporate"}
+
+
+async def get_industry(x_industry: str | None = Header(None, alias="X-Industry")) -> str:
+    return x_industry if x_industry in VALID_INDUSTRIES else "financial"
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Health & meta
 # ═══════════════════════════════════════════════════════════════════
 
@@ -222,6 +235,7 @@ async def copilot_ask(
     req: CopilotAskRequest,
     tenant_id: str = Depends(get_tenant_id),
     user_id: str | None = Depends(get_user_id),
+    industry: str = Depends(get_industry),
 ):
     copilot = ComplianceCopilot()
     return await copilot.ask(
@@ -230,6 +244,7 @@ async def copilot_ask(
         deep_mode=req.deep_mode,
         output_schema=req.output_schema,
         tenant_id=tenant_id, user_id=user_id,
+        industry=industry,
     )
 
 
@@ -306,11 +321,13 @@ async def monitor_transactions(
     request: Request,
     req: TransactionAnalysisRequest,
     tenant_id: str = Depends(get_tenant_id),
+    industry: str = Depends(get_industry),
 ):
     engine = MonitoringEngine()
     return await engine.analyze_transactions(
         transaction_summary=req.transaction_summary,
         tenant_id=tenant_id,
+        industry=industry,
     )
 
 
@@ -318,12 +335,14 @@ async def monitor_transactions(
 async def detect_drift(
     req: PolicyDriftRequest,
     tenant_id: str = Depends(get_tenant_id),
+    industry: str = Depends(get_industry),
 ):
     engine = MonitoringEngine()
     return await engine.detect_drift(
         policy_description=req.policy_description,
         observed_behavior=req.observed_behavior,
         tenant_id=tenant_id,
+        industry=industry,
     )
 
 

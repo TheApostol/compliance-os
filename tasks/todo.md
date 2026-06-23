@@ -264,3 +264,42 @@ All 7 items completed.
 
 **Known follow-ups (not in scope for this sprint):** Next.js 14.2.18 has a flagged security advisory (upgrade out of scope); the new premortem route is read-only (mitigations/findings CRUD endpoints exist on the backend but aren't wired into the UI yet).
 
+---
+
+## Sprint 4 — Real multi-industry support, backend + frontend (2026-06-23)
+
+User feedback: multi-industry was frontend-skin-only (relabeled module names/regulators), backend had zero industry awareness — selecting "Healthcare & Pharma" → M4 Pharmacovigilance still ran the hardcoded AML-typology detector. User directive: make it real on both sides. **All regulator framing must stay LATAM-only (BCRA/UIF/BACEN, SSN/SUSEP/CMF/CNSF, ANMAT/ANVISA/COFEPRIS/LGPD/PDPA) — never US/FDA-style. Priority: pharma/healthcare path.**
+
+### Backend
+- [x] `router.py`: add `X-Industry` header dependency (`get_industry`, validated against financial/insurance/healthcare/corporate, default financial)
+- [x] `copilot.py`: industry-conditional system prompts (4 LATAM-only variants), thread `industry` through `/copilot/ask`
+- [x] `monitoring/engine.py`: real pharmacovigilance path for healthcare (LATAM-only system prompt + schema: signal_score, signal_type, seriousness, regulatory_action ANMAT/ANVISA/COFEPRIS, expedited_report_required) with its own deterministic floor (fatal outcome / serious-event cluster / device malfunction / counterfeit). Insurance/corporate get correct regulator framing on the existing rule-based AML path (no fabricated numeric thresholds). Thread `industry` through `/monitoring/transactions` and `/monitoring/drift`.
+
+### Frontend
+- [x] `page.tsx`: `authHeaders` sends `X-Industry: <slug>` (replaces dead `X-Industry-Context` sentence header); thread `industry` into copilot ask, ticket-AI ask, transaction analysis, drift detection calls
+- [x] Fix M4 Monitoring result renderer — it reads `risk_level`/`anomalies`/`recommendations`, none of which exist in the real response shape (`analysis`/`anomaly_score`/`rule_flags`/`investigation_priority`), so it always falls through to a raw JSON dump. Replace with a generic renderer driven by the actual fields, since the `analysis` object's shape now varies per industry.
+
+### Verification
+- [x] `ast.parse` on every touched backend file
+- [x] `tsc --noEmit` + `next build` on frontend
+- [x] Review section appended below when done
+
+---
+
+## Review — Sprint 4 (real multi-industry, backend + frontend)
+
+Closed the gap where industry selection only changed frontend labels — the backend now actually branches behavior by industry, with every regulator reference kept LATAM-only (no FDA/US framing anywhere).
+
+| Item | Key files |
+|---|---|
+| `X-Industry` header + dependency | `api/v1/router.py` — `get_industry()`, `VALID_INDUSTRIES`, threaded into `copilot_ask`, `monitor_transactions`, `detect_drift` |
+| Copilot industry-conditional prompts | `modules/copilot/copilot.py` — `COPILOT_SYSTEM_BY_INDUSTRY` (financial/insurance/healthcare/corporate), each citing its real LATAM regulators (BCRA/UIF/BACEN/CMF · SSN/SUSEP/CNSF · ANMAT/ANVISA/COFEPRIS/LGPD/PDPA), shared rule explicitly forbidding US-only regulator framing |
+| Real pharmacovigilance path (priority vertical) | `modules/monitoring/engine.py` — `PV_SYSTEM`/`PV_SCHEMA` (signal_score, signal_type, seriousness, `regulatory_action` constrained to REPORT_ANMAT/REPORT_ANVISA/REPORT_COFEPRIS/RECALL_REVIEW, expedited_report_required), `_deterministic_pv_floor()` (fatal outcome, serious-event cluster ≥3, device malfunction, counterfeit/diversion) blended 40/60 with the AI score exactly like the existing AML floor — selecting "Healthcare & Pharma" → M4 no longer runs the AML-typology detector |
+| Insurance/corporate correct framing (no fabricated thresholds) | same file — `INSURANCE_ANOMALY_SYSTEM`/`SCHEMA`, `CORPORATE_ANOMALY_SYSTEM`/`SCHEMA` reuse the existing rule-based floor (no invented numeric thresholds), `DRIFT_INDUSTRY_CONTEXT` injects correct regulator context into `/monitoring/drift` for all 4 industries |
+| Frontend wiring | `frontend/app/page.tsx` — `authHeaders()` now sends `X-Industry: <slug>` (replaced the dead `X-Industry-Context` sentence header) from the M2 Copilot ask, M9 ticket-AI ask, M4 transaction analysis, and M4 drift detection call sites |
+| M4 result-rendering bug fix | same file — old renderer read `risk_level`/`anomalies`/`recommendations` (none of which the backend ever returns) and always fell through to a raw JSON dump; replaced with a generic renderer keyed off the real shape (`anomaly_score`, `investigation_priority`, `rule_flags`, and a dynamic walk of the `analysis` object) so it correctly displays any of the 4 industry-specific schemas |
+
+**Verification:** `ast.parse` clean on `router.py`/`copilot.py`/`monitoring/engine.py`; `tsc --noEmit` clean; `next build` succeeds (all 4 routes, including `/premortem`, build as static).
+
+**Known follow-ups (not in scope):** no automated test coverage added for the new industry branches (no `test_monitoring.py`/`test_copilot.py` exists yet in `backend/tests/`); M10's standalone real-time AML engine (`modules/transactions/engine.py`) remains unwired and untouched; KYC (M3) and Governance (M5) still run their original single-industry logic — only Copilot (M2) and Monitoring (M4) were made industry-aware per this pass, since those were the two engines with hardcoded financial-only prompts.
+

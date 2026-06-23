@@ -134,10 +134,10 @@ function SkeletonTable({ rows = 4, cols = 3 }: { rows?: number; cols?: number })
   )
 }
 
-function authHeaders(token: string | null, industryContext?: string): HeadersInit {
+function authHeaders(token: string | null, industry?: Industry | null): HeadersInit {
   const h: Record<string, string> = { 'X-Tenant-Id': 'polkorp' }
   if (token) h['Authorization'] = `Bearer ${token}`
-  if (industryContext) h['X-Industry-Context'] = industryContext
+  if (industry) h['X-Industry'] = industry
   return h
 }
 
@@ -263,7 +263,7 @@ export default function Home() {
     try {
       const res = await fetch(`${API_URL}/api/v1/copilot/ask`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token, industry) },
         body: JSON.stringify({ question, deep_mode: false }),
       })
       const data = await res.json()
@@ -710,7 +710,7 @@ export default function Home() {
     try {
       const res = await fetch(`${API_URL}/api/v1/monitoring/transactions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token, industry) },
         body: JSON.stringify({ transaction_summary: parsed }),
       })
       const data = await res.json()
@@ -730,7 +730,7 @@ export default function Home() {
     try {
       const res = await fetch(`${API_URL}/api/v1/monitoring/drift`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token, industry) },
         body: JSON.stringify({ policy_description: driftPolicy, observed_behavior: parsed }),
       })
       const data = await res.json()
@@ -1137,7 +1137,7 @@ export default function Home() {
     try {
       const res = await fetch(`${API_URL}/api/v1/copilot/ask`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders(token, industryCfg?.aiContext) },
+        headers: { 'Content-Type': 'application/json', ...authHeaders(token, industry) },
         body: JSON.stringify({
           question: `[${industryCfg?.name ?? 'Compliance'} context] ${ticketChatQ}`,
           deep_mode: false,
@@ -1804,39 +1804,72 @@ export default function Home() {
                     )}
                     {monTxResult.success !== false && !monTxResult.error && (
                       <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-md space-y-3">
-                        <div className="flex items-center gap-3">
-                          {monTxResult.risk_level && (
-                            <Badge variant={variantForLevel(monTxResult.risk_level)} size="lg">
-                              {monTxResult.risk_level}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {typeof monTxResult.anomaly_score === 'number' && (
+                            <Badge
+                              variant={monTxResult.anomaly_score >= 70 ? 'critical' : monTxResult.anomaly_score >= 40 ? 'high' : 'low'}
+                              size="lg"
+                            >
+                              Score: {monTxResult.anomaly_score}
+                            </Badge>
+                          )}
+                          {monTxResult.investigation_priority && (
+                            <Badge variant={variantForLevel(monTxResult.investigation_priority)} size="lg">
+                              {monTxResult.investigation_priority}
+                            </Badge>
+                          )}
+                          {monTxResult.analysis?.seriousness && (
+                            <Badge variant={variantForLevel(monTxResult.analysis.seriousness)} size="lg">
+                              {monTxResult.analysis.seriousness}
                             </Badge>
                           )}
                         </div>
-                        {Array.isArray(monTxResult.anomalies) && monTxResult.anomalies.length > 0 && (
+
+                        {Array.isArray(monTxResult.rule_flags) && monTxResult.rule_flags.length > 0 && (
                           <div>
-                            <div className="text-xs text-zinc-500 mb-1.5">Anomalies detected</div>
-                            <ul className="space-y-1">
-                              {monTxResult.anomalies.map((a: any, i: number) => (
-                                <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
-                                  <span className="text-yellow-600 mt-0.5">&#x25CF;</span>
-                                  {typeof a === 'string' ? a : JSON.stringify(a)}
-                                </li>
+                            <div className="text-xs text-zinc-500 mb-1.5">Rule-based flags</div>
+                            <div className="flex gap-1.5 flex-wrap">
+                              {monTxResult.rule_flags.map((f: string, i: number) => (
+                                <Badge key={i} variant="neutral" size="sm">{f}</Badge>
                               ))}
-                            </ul>
+                            </div>
                           </div>
                         )}
-                        {Array.isArray(monTxResult.recommendations) && monTxResult.recommendations.length > 0 && (
-                          <div>
-                            <div className="text-xs text-zinc-500 mb-1.5">Recommendations</div>
-                            <ul className="space-y-1">
-                              {monTxResult.recommendations.map((r: any, i: number) => (
-                                <li key={i} className="text-sm text-zinc-400">
-                                  {typeof r === 'string' ? r : JSON.stringify(r)}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {!monTxResult.risk_level && !monTxResult.anomalies && (
+
+                        {Object.entries(monTxResult.analysis || {}).map(([key, val]: [string, any]) => {
+                          if (Array.isArray(val) && val.length > 0) {
+                            return (
+                              <div key={key}>
+                                <div className="text-xs text-zinc-500 mb-1.5">{key.replace(/_/g, ' ')}</div>
+                                <ul className="space-y-1">
+                                  {val.map((v: any, i: number) => (
+                                    <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
+                                      <span className="text-yellow-600 mt-0.5">&#x25CF;</span>
+                                      {typeof v === 'string' ? v : JSON.stringify(v)}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )
+                          }
+                          if (typeof val === 'string' && val) {
+                            return (
+                              <div key={key} className="text-sm text-zinc-300">
+                                <span className="text-zinc-500">{key.replace(/_/g, ' ')}:</span> {val}
+                              </div>
+                            )
+                          }
+                          if (typeof val === 'boolean') {
+                            return (
+                              <div key={key} className="text-sm text-zinc-300">
+                                <span className="text-zinc-500">{key.replace(/_/g, ' ')}:</span> {val ? 'Yes' : 'No'}
+                              </div>
+                            )
+                          }
+                          return null
+                        })}
+
+                        {(!monTxResult.analysis || Object.keys(monTxResult.analysis).length === 0) && (
                           <pre className="text-xs font-mono text-zinc-300 whitespace-pre-wrap">{JSON.stringify(monTxResult, null, 2)}</pre>
                         )}
                       </div>

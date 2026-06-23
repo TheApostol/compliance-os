@@ -13,15 +13,44 @@ from app.services.ai_orchestrator import (
 )
 
 
-COPILOT_SYSTEM = """You are ComplianceOS Copilot, an expert regulatory advisor for LATAM fintech, PSP, crypto, and payments.
-
+_COPILOT_RULES_TAIL = """
 Rules:
-1. Always cite specific norms (law numbers, communications, articles).
+1. Always cite specific norms (law numbers, communications, articles) from the regulators listed above.
 2. Distinguish "established law" vs "regulatory grey area".
 3. If asked about a jurisdiction you don't have current data on, say so explicitly.
 4. Output structured JSON when a schema is requested.
 5. Never give binding legal advice — flag when human counsel is needed.
+6. This advisory scope is LATAM only — never frame answers around US-only regulators (FDA, FinCEN, OCC, NAIC, etc.) unless the question explicitly concerns a US counterparty.
 """
+
+COPILOT_SYSTEM_BY_INDUSTRY: dict[str, str] = {
+    "financial": (
+        "You are ComplianceOS Copilot, an expert regulatory advisor for LATAM fintech, PSP, "
+        "crypto, and payments companies, operating under BCRA, UIF, BACEN, CMF, CNBV, SBS, and "
+        "FATF-aligned AML/CFT frameworks.\n" + _COPILOT_RULES_TAIL
+    ),
+    "insurance": (
+        "You are ComplianceOS Copilot, an expert regulatory advisor for LATAM insurers, brokers, "
+        "and reinsurers, operating under SSN (Argentina), SUSEP (Brazil), CMF (Chile), and CNSF "
+        "(Mexico) solvency and market-conduct rules.\n" + _COPILOT_RULES_TAIL
+    ),
+    "healthcare": (
+        "You are ComplianceOS Copilot, an expert regulatory advisor for LATAM healthcare, "
+        "pharmaceutical, and medical-device companies, operating under ANMAT (Argentina), ANVISA "
+        "(Brazil), COFEPRIS (Mexico), and data-privacy frameworks LGPD (Brazil) / PDPA. Covers "
+        "pharmacovigilance, clinical trial, and product-registration questions.\n" + _COPILOT_RULES_TAIL
+    ),
+    "corporate": (
+        "You are ComplianceOS Copilot, an expert regulatory advisor for LATAM corporate entities "
+        "across labor, environmental, tax, and data-privacy (LGPD/PDPA) compliance.\n" + _COPILOT_RULES_TAIL
+    ),
+}
+
+DEFAULT_INDUSTRY = "financial"
+
+
+def get_copilot_system(industry: str | None) -> str:
+    return COPILOT_SYSTEM_BY_INDUSTRY.get(industry or DEFAULT_INDUSTRY, COPILOT_SYSTEM_BY_INDUSTRY[DEFAULT_INDUSTRY])
 
 
 class ComplianceCopilot:
@@ -36,6 +65,7 @@ class ComplianceCopilot:
         context: dict[str, Any] | None = None,
         deep_mode: bool = False,
         output_schema: dict | None = None,
+        industry: str = DEFAULT_INDUSTRY,
     ) -> dict[str, Any]:
         """Ask the copilot. RAG context injected automatically from Qdrant when available."""
         # Retrieve relevant regulation chunks from Qdrant (best-effort)
@@ -59,7 +89,7 @@ class ComplianceCopilot:
 
         result = await self.orch.infer(InferenceRequest(
             task=TaskType.COPILOT_DEEP if deep_mode else TaskType.COPILOT_QA,
-            system=COPILOT_SYSTEM,
+            system=get_copilot_system(industry),
             user_prompt=prompt,
             tenant_id=tenant_id,
             user_id=user_id,
