@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ComplianceOS — Project Status</title>
+<style>
+  :root{
+    --bg:#09090b; --bg2:#101012; --panel:#18181b; --panel2:#141416;
+    --border:#27272a; --border2:#3f3f46; --text:#fafafa; --text2:#a1a1aa; --text3:#71717a; --text4:#52525b;
+    --red:#7f1d1d; --red-bg:#1c0a0a; --red-tx:#fca5a5;
+    --orange:#7c2d12; --orange-bg:#1c0f06; --orange-tx:#fdba74;
+    --yellow:#713f12; --yellow-bg:#1c1206; --yellow-tx:#fde047;
+    --green:#14532d; --green-bg:#0a1c0f; --green-tx:#86efac;
+    --blue-accent:#1d4ed8; --emerald-accent:#047857; --rose-accent:#be123c; --zinc-accent:#3f3f46;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.6;
+  }
+  .mono{font-family:"SF Mono",Consolas,Monaco,monospace;}
+  a{color:#93c5fd; text-decoration:none;}
+  a:hover{text-decoration:underline;}
+
+  .wrap{max-width:1100px; margin:0 auto; padding:0 24px;}
+
+  header.hero{border-bottom:1px solid var(--border); padding:56px 0 40px; background:radial-gradient(ellipse 80% 60% at 50% -10%, #1d4ed822, transparent);}
+  .badges{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
+  .badge{font-size:11px; font-family:monospace; padding:3px 9px; border-radius:999px; border:1px solid var(--border2); color:var(--text2); background:var(--panel2);}
+  .badge.live{border-color:#047857aa; color:#86efac; background:#04231955;}
+  h1.title{font-size:34px; font-weight:700; letter-spacing:-0.02em; margin-bottom:10px;}
+  p.tagline{font-size:16px; color:var(--text2); max-width:640px; margin-bottom:24px;}
+  .cta-row{display:flex; gap:10px; flex-wrap:wrap;}
+  .btn{display:inline-flex; align-items:center; gap:6px; border:none; border-radius:6px; font-size:13px; font-weight:500; padding:9px 16px; cursor:pointer; transition:.15s;}
+  .btn-primary{background:#f4f4f5; color:#18181b;}
+  .btn-primary:hover{background:#fff; text-decoration:none;}
+  .btn-ghost{background:#27272a; border:1px solid #3f3f46; color:#d4d4d8;}
+  .btn-ghost:hover{background:#3f3f46; text-decoration:none;}
+
+  nav.toc{border-bottom:1px solid var(--border); padding:14px 0; position:sticky; top:0; background:rgba(9,9,11,.92); backdrop-filter:blur(6px); z-index:10;}
+  nav.toc .wrap{display:flex; gap:18px; flex-wrap:wrap; font-size:12.5px; color:var(--text3);}
+  nav.toc a{color:var(--text3);}
+  nav.toc a:hover{color:var(--text); text-decoration:none;}
+
+  section{padding:48px 0; border-bottom:1px solid var(--border);}
+  section:last-of-type{border-bottom:none;}
+  h2.sec-title{font-size:21px; font-weight:600; margin-bottom:6px; display:flex; align-items:center; gap:10px;}
+  p.sec-sub{font-size:13px; color:var(--text3); margin-bottom:24px; max-width:680px;}
+
+  .grid2{display:grid; grid-template-columns:1fr; gap:14px;}
+  @media(min-width:768px){.grid2{grid-template-columns:1fr 1fr;}}
+  .grid3{display:grid; grid-template-columns:1fr; gap:14px;}
+  @media(min-width:640px){.grid3{grid-template-columns:1fr 1fr;}}
+  @media(min-width:1000px){.grid3{grid-template-columns:1fr 1fr 1fr;}}
+
+  .card{border:1px solid var(--border); border-radius:10px; padding:18px 20px; background:var(--panel2);}
+  .card h3{font-size:14px; font-weight:600; margin-bottom:8px;}
+  .card p{font-size:12.5px; color:var(--text3);}
+  .card ul{margin-top:8px; padding-left:18px; font-size:12.5px; color:var(--text2);}
+  .card ul li{margin-bottom:4px;}
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  table.boxed{border:1px solid var(--border); border-radius:10px; overflow:hidden;}
+  th, td{padding:10px 14px; text-align:left; border-bottom:1px solid var(--border);}
+  th{font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text3); background:var(--panel2); font-weight:600;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--panel2);}
+  td.mono{font-family:monospace; color:var(--text2);}
+
+  .pill{display:inline-block; font-size:11px; font-weight:600; padding:2px 9px; border-radius:999px;}
+  .pill-done{background:var(--green-bg); color:var(--green-tx); border:1px solid #14532daa;}
+  .pill-beta{background:var(--yellow-bg); color:var(--yellow-tx); border:1px solid #713f12aa;}
+  .pill-wip{background:var(--orange-bg); color:var(--orange-tx); border:1px solid #7c2d12aa;}
+  .pill-planned{background:var(--panel); color:var(--text3); border:1px solid var(--border2);}
+  .pill-crit{background:var(--red-bg); color:var(--red-tx); border:1px solid #7f1d1daa;}
+
+  .risk-bar-track{width:100%; height:8px; border-radius:999px; background:var(--panel); overflow:hidden; margin-top:6px;}
+  .risk-bar-fill{height:100%; border-radius:999px;}
+
+  .quote{border-left:3px solid var(--blue-accent); padding:14px 20px; background:var(--panel2); border-radius:0 8px 8px 0; font-size:15px; color:var(--text); margin:18px 0;}
+
+  ul.plain{padding-left:20px; font-size:13px; color:var(--text2);}
+  ul.plain li{margin-bottom:6px;}
+  .two-col-list{display:grid; grid-template-columns:1fr; gap:24px;}
+  @media(min-width:768px){.two-col-list{grid-template-columns:1fr 1fr;}}
+  .col-label{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text3); margin-bottom:10px;}
+
+  footer{padding:32px 0; font-size:12px; color:var(--text4); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="badges">
+      <span class="badge live">● live status — 2026-06-23</span>
+      <span class="badge mono">branch: claude/polkorp-index2-premortem-ypipap</span>
+      <span class="badge mono">owner: Polkorp Global Ventures</span>
+    </div>
+    <h1 class="title">ComplianceOS</h1>
+    <p class="tagline">AI-native regulatory intelligence and compliance operations infrastructure for LATAM regulated industries — financial, insurance, healthcare/pharma, and corporate. Not a dashboard. Not a KYC wrapper. Regulation, turned into structured, machine-readable obligations that AI agents monitor, audit, and act on continuously.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="ui-prototype.html">Open interactive UI/UX prototype →</a>
+      <a class="btn btn-ghost" href="README.md">README</a>
+      <a class="btn btn-ghost" href="PREMORTEM_SUMMARY.md">Premortem report</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#overview">Overview</a>
+    <a href="#modules">Module Status</a>
+    <a href="#coverage">Regulatory Coverage</a>
+    <a href="#ai-stack">AI Stack</a>
+    <a href="#needs">Needs / Roadmap</a>
+    <a href="#risk">Risk Posture</a>
+    <a href="#benefits">Why ComplianceOS</a>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <section id="overview">
+    <h2 class="sec-title">Overview</h2>
+    <p class="sec-sub">What's actually running today, end to end.</p>
+    <div class="grid3">
+      <div class="card">
+        <h3>What it does</h3>
+        <ul>
+          <li>Turns regulation into structured obligations</li>
+          <li>Operational workflows + remediation pipelines</li>
+          <li>Tamper-evident evidence chains</li>
+          <li>Predictive regulatory intelligence</li>
+          <li>Graph-linked compliance operations</li>
+          <li>AI-assisted governance automation</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Stack</h3>
+        <ul>
+          <li>FastAPI + Pydantic v2 + async SQLAlchemy</li>
+          <li>Next.js 14 (App Router) + Tailwind</li>
+          <li>PostgreSQL · Qdrant · Redis</li>
+          <li>NVIDIA NIM (free tier) → Anthropic → OpenRouter, 3-tier fallback</li>
+          <li>Docker Compose</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Industries served</h3>
+        <ul>
+          <li>🏦 Financial — AML/CFT, BCRA, UIF, BACEN, CMF</li>
+          <li>🛡️ Insurance — solvency &amp; market conduct, SSN, SUSEP, CNSF</li>
+          <li>💊 Healthcare/Pharma — pharmacovigilance, ANMAT, ANVISA, COFEPRIS <em>(priority vertical)</em></li>
+          <li>🏢 Corporate — labor, environmental, LGPD/PDPA</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="modules">
+    <h2 class="sec-title">Module Status</h2>
+    <p class="sec-sub">Reconciled against the actual codebase (<code class="mono">backend/app/modules/</code>) as of 2026-06-23 — supersedes the stale table in CLAUDE.md, which still lists M6 as scaffolded-only and a regulatory crawler as an open task. Both have shipped.</p>
+    <table class="boxed">
+      <thead><tr><th>Module</th><th>Name</th><th>Status</th><th>Path</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">M1</td><td>Regulatory Intelligence</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/regulatory/</td></tr>
+        <tr><td class="mono">M2</td><td>Compliance Copilot</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/copilot/</td></tr>
+        <tr><td class="mono">M3</td><td>AML / KYC Orchestration</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/kyc_aml/</td></tr>
+        <tr><td class="mono">M4</td><td>Continuous Monitoring</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/monitoring/</td></tr>
+        <tr><td class="mono">M5</td><td>AI Governance</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/governance/</td></tr>
+        <tr><td class="mono">M6</td><td>Evidence Automation</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/evidence/</td></tr>
+        <tr><td class="mono">M7</td><td>Workflow Orchestration &amp; Remediation</td><td><span class="pill pill-done">Stable</span> <span class="pill pill-beta">hardened 06-23</span></td><td class="mono">modules/workflows/</td></tr>
+        <tr><td class="mono">M8</td><td>Predictive Regulatory Intelligence</td><td><span class="pill pill-done">Stable</span> <span class="pill pill-beta">hardened 06-23</span></td><td class="mono">modules/predictive/</td></tr>
+        <tr><td class="mono">M9</td><td>Incident Management / Ticketing</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/ticketing/</td></tr>
+        <tr><td class="mono">M10</td><td>Transaction Monitoring (deterministic AML rules + AI typology)</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/transactions/</td></tr>
+        <tr><td class="mono">—</td><td>Compliance Gap Analysis (supporting engine)</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/compliance/</td></tr>
+        <tr><td class="mono">—</td><td>LATAM Regulatory Crawlers (BCRA, UIF, BACEN, BCU, CMF, CNBV, SFC, SBS Peru, SBS Ecuador)</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/crawler/</td></tr>
+        <tr><td class="mono">—</td><td>Premortem Risk Engine (failure-mode tracking, mitigation roadmap)</td><td><span class="pill pill-done">Stable</span></td><td class="mono">modules/premortem/</td></tr>
+      </tbody>
+    </table>
+    <p style="font-size:12px; color:var(--text4); margin-top:10px;">M7 was rebuilt 2026-06-23 from a 4-step stub into a real DAG-validated, dependency- and approval-gated state machine with timeout escalation (resolves failure mode F9). M8 was rebuilt the same day to query real regulation/obligation counts from the database instead of returning hardcoded grounding data.</p>
+  </section>
+
+  <section id="coverage">
+    <h2 class="sec-title">Regulatory Coverage</h2>
+    <p class="sec-sub">8 jurisdictions, 11 regulators — LATAM only, by design. No FDA, MedWatch, EMA, FinCEN, OCC, or NAIC references anywhere in the system prompts or UI.</p>
+    <div class="grid2">
+      <div class="card">
+        <h3>Jurisdictions</h3>
+        <p>Argentina · Brazil · Mexico · Chile · Colombia · Peru · Ecuador · Uruguay</p>
+      </div>
+      <div class="card">
+        <h3>Regulators</h3>
+        <p>BCRA · UIF · CNV · BACEN · CVM · CMF · SFC · CNBV · SBS Peru · SBS Ecuador · BCU</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="ai-stack">
+    <h2 class="sec-title">AI Stack</h2>
+    <p class="sec-sub">All AI calls route through a single orchestrator (<code class="mono">app/services/ai_orchestrator.py</code>) — no module talks to a provider directly. This gives routing, fallbacks, rate limiting, cost tracking, and audit logging in one place.</p>
+    <div class="grid3">
+      <div class="card">
+        <h3>Validated models</h3>
+        <ul>
+          <li><strong>nemotron-super-49b-v1</strong> — Q=93.6, best for M1/M3/M4</li>
+          <li><strong>llama-3.3-70b-instruct</strong> — Q=91.3, best speed/quality</li>
+          <li><strong>kimi-k2-instruct</strong> — Q=91.2, fastest, ES/EN/ZH native, Q=100 on M2/M5</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Provider fallback chain</h3>
+        <ul>
+          <li>1. NVIDIA NIM (free, 40 RPM)</li>
+          <li>2. Anthropic (claude-sonnet-4-6)</li>
+          <li>3. OpenRouter (llama-3.3-70b)</li>
+        </ul>
+        <p style="margin-top:8px;">Skips unconfigured providers; only refuses if zero are configured. Shipped 2026-06-23 — not yet chaos-tested against a live NVIDIA outage.</p>
+      </div>
+      <div class="card">
+        <h3>Capabilities</h3>
+        <ul>
+          <li>Regulatory parsing &amp; obligation extraction</li>
+          <li>Evidence extraction</li>
+          <li>Workflow remediation</li>
+          <li>Predictive scoring</li>
+          <li>RAG retrieval (Qdrant)</li>
+          <li>Graph contextualization</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="needs">
+    <h2 class="sec-title">Needs / Roadmap</h2>
+    <p class="sec-sub">What's actively being built, what's planned, and the foundation work the premortem exercise flagged as blocking before production rollout.</p>
+
+    <div class="two-col-list" style="margin-bottom:28px;">
+      <div>
+        <div class="col-label">In progress</div>
+        <ul class="plain">
+          <li>Workflow UI &amp; remediation dashboards</li>
+          <li>Graph explorer</li>
+          <li>Regulatory diff engine</li>
+          <li>Obligation engine</li>
+          <li>Predictive forecasting</li>
+          <li>Expansion simulator</li>
+          <li>Evidence pipelines</li>
+          <li>Automated sanctions ingestion</li>
+        </ul>
+      </div>
+      <div>
+        <div class="col-label">Planned</div>
+        <ul class="plain">
+          <li>Policy drafting AI</li>
+          <li>Enforcement prediction</li>
+          <li>SOC2 readiness</li>
+          <li>ServiceNow / Jira / Slack integrations</li>
+          <li>Advanced graph RAG</li>
+          <li>Regulatory timeline visualization</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px; margin-bottom:10px;">Phase 0 — blocking foundation tasks (deadline this week)</h3>
+    <table class="boxed">
+      <thead><tr><th>Task</th><th>Owner</th><th>Deadline</th><th>Blocking</th></tr></thead>
+      <tbody>
+        <tr><td>T0.1 — Audit all 21 DB queries for tenant_id filter</td><td>Backend</td><td class="mono">2026-06-27</td><td><span class="pill pill-crit">F2</span></td></tr>
+        <tr><td>T0.2 — Namespace Qdrant collections by tenant</td><td>Backend</td><td class="mono">2026-06-29</td><td><span class="pill pill-crit">F2</span></td></tr>
+        <tr><td>T0.3 — JWT middleware (replace X-Tenant-Id)</td><td>Backend</td><td class="mono">2026-06-30</td><td><span class="pill pill-done">done</span></td></tr>
+        <tr><td>T0.4 — Enforce Postgres role for audit-log INSERT-ONLY</td><td>Backend</td><td class="mono">2026-06-25</td><td><span class="pill pill-crit">F3</span></td></tr>
+        <tr><td>T0.5 — Monitoring: alert on crawler zero-doc</td><td>Ops</td><td class="mono">2026-06-27</td><td><span class="pill pill-wip">F4</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="risk">
+    <h2 class="sec-title">Risk Posture</h2>
+    <p class="sec-sub">From the 2026-06-23 premortem exercise — 18 failure modes identified, risk-scored, and tracked against a 13-week, 5-phase hardening plan toward production go-live.</p>
+
+    <div class="card" style="margin-bottom:20px;">
+      <h3>Overall risk score</h3>
+      <p style="font-size:13px; margin-bottom:4px;">59/100 (baseline) → <strong style="color:var(--text);">51/100 (current)</strong> → 11/100 (go-live target)</p>
+      <div class="risk-bar-track"><div class="risk-bar-fill" style="width:51%; background:linear-gradient(90deg,#dc2626,#f59e0b);"></div></div>
+    </div>
+
+    <div class="grid2" style="margin-bottom:20px;">
+      <div class="card">
+        <h3>Per-dimension scores</h3>
+        <ul>
+          <li>Service Availability — 30/100 (improving, T1.1 fallback routing shipped)</li>
+          <li>Data Integrity — 58/100 (untouched, Phase 0 target)</li>
+          <li>Regulatory Compliance — 68/100</li>
+          <li>Operational Stability — 56/100 (improving, F9 resolved)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Critical (Tier 1) open failure modes</h3>
+        <ul>
+          <li>F1 — NVIDIA NIM outage (mitigated 70% via 3-tier fallback)</li>
+          <li>F2 — Multi-tenant data isolation breach</li>
+          <li>F3 — Audit chain tampering / hash corruption</li>
+          <li>F4 — Regulatory crawler parser breaks on site redesign</li>
+          <li>F5 — NVIDIA rate-limit exhaustion (40 RPM @ peak)</li>
+          <li>F8 — Data residency policy violation</li>
+        </ul>
+      </div>
+    </div>
+
+    <p style="font-size:12.5px; color:var(--text3);">F9 (workflow deadlock) is the first failure mode marked fully <strong style="color:var(--green-tx);">RESOLVED</strong> — real DAG validation + dependency/approval gating + timeout escalation shipped in M7. Full detail: <a href="PREMORTEM_SUMMARY.md">PREMORTEM_SUMMARY.md</a>.</p>
+  </section>
+
+  <section id="benefits">
+    <h2 class="sec-title">Why ComplianceOS</h2>
+    <div class="quote">ComplianceOS is not a generic compliance dashboard. It is AI-native regulatory intelligence and compliance operations infrastructure for LATAM regulated industries.</div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Enterprise features</h3>
+        <ul>
+          <li>Multi-tenant architecture, JWT authentication, API keys</li>
+          <li>Immutable, hash-chained audit logs</li>
+          <li>RAG retrieval &amp; graph intelligence</li>
+          <li>Crawler scheduling, SSE events</li>
+          <li>Observability + Prometheus metrics</li>
+          <li>Webhook support</li>
+          <li>Workflow orchestration + predictive intelligence</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What sets it apart</h3>
+        <ul>
+          <li>Regulation is parsed into structured, machine-readable obligations — not just searchable text</li>
+          <li>Continuous monitoring with a deterministic rule floor, so AI failures never fail open ("no anomalies")</li>
+          <li>Every compliance decision is audit-logged through a tamper-evident hash chain</li>
+          <li>Built LATAM-first: jurisdiction logic, regulators, and language are native, not bolted on</li>
+          <li>Pharmacovigilance is a first-class vertical, not an afterthought bolted onto a financial-AML core</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <span>ComplianceOS — Polkorp Global Ventures. Proprietary.</span>
+  <span>Status page generated 2026-06-23 · <a href="ui-prototype.html">Interactive prototype</a> · <a href="QUICKSTART.md">Quickstart</a></span>
+</footer>
+
+</body>
+</html>
