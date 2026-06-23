@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ComplianceOS — UI/UX Prototype</title>
+<style>
+  :root{
+    --bg:#09090b; --bg2:#101012; --panel:#18181b; --panel2:#141416;
+    --border:#27272a; --border2:#3f3f46; --text:#fafafa; --text2:#a1a1aa; --text3:#71717a; --text4:#52525b;
+    --red:#7f1d1d; --red-bg:#1c0a0a; --red-tx:#fca5a5;
+    --orange:#7c2d12; --orange-bg:#1c0f06; --orange-tx:#fdba74;
+    --yellow:#713f12; --yellow-bg:#1c1206; --yellow-tx:#fde047;
+    --green:#14532d; --green-bg:#0a1c0f; --green-tx:#86efac;
+    --blue-accent:#1d4ed8; --emerald-accent:#047857; --rose-accent:#be123c; --zinc-accent:#3f3f46;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:14px; line-height:1.5; min-height:100vh;
+  }
+  .mono{font-family:"SF Mono",Consolas,Monaco,monospace;}
+  .hidden{display:none !important;}
+  button{font-family:inherit; cursor:pointer;}
+  input,textarea,select{font-family:inherit; font-size:13px; color:var(--text);}
+  ::placeholder{color:var(--text4);}
+
+  /* layout */
+  .center-screen{min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:64px 24px;}
+  .max-w-2xl{max-width:640px; width:100%;}
+  .max-w-7xl{max-width:1280px; margin:0 auto;}
+  .grid-ind{display:grid; grid-template-columns:1fr; gap:16px; width:100%;}
+  @media(min-width:640px){.grid-ind{grid-template-columns:1fr 1fr; gap:20px;}}
+
+  .ind-card{text-align:left; padding:24px; border-radius:12px; border:1px solid var(--border2); background:var(--panel2); transition:filter .15s; color:var(--text);}
+  .ind-card:hover{filter:brightness(1.25);}
+  .ind-card.financial{border-color:#1d4ed8aa; background:#0c1a3e55;}
+  .ind-card.insurance{border-color:#047857aa; background:#04231955;}
+  .ind-card.healthcare{border-color:#be123caa; background:#2b0a1455;}
+  .ind-card.corporate{border-color:#52525baa; background:#27272a55;}
+  .ind-icon{font-size:30px; margin-bottom:12px;}
+  .ind-name{font-size:16px; font-weight:600; margin-bottom:4px;}
+  .ind-tag{font-size:12px; color:var(--text2); margin-bottom:12px;}
+  .ind-reg{font-size:12px; color:var(--text3); font-family:monospace;}
+  .ind-count{margin-top:16px; font-size:12px; color:var(--text3);}
+
+  header.app-header{border-bottom:1px solid var(--border); padding:16px 32px;}
+  .header-row{display:flex; align-items:center; justify-content:space-between; max-width:1280px; margin:0 auto;}
+  .brand h1{font-size:22px; font-weight:700; letter-spacing:-0.02em;}
+  .brand p{font-size:13px; color:var(--text3); margin-top:2px;}
+  .header-actions{display:flex; align-items:center; gap:8px;}
+  .btn{border:none; border-radius:6px; font-size:12px; font-weight:500; padding:7px 14px; cursor:pointer; transition:.15s;}
+  .btn-primary{background:#f4f4f5; color:#18181b;}
+  .btn-primary:hover{background:#fff;}
+  .btn-primary:disabled{opacity:.5; cursor:default;}
+  .btn-ghost{background:#27272a; border:1px solid #3f3f46; color:#d4d4d8;}
+  .btn-ghost:hover{background:#3f3f46;}
+  .btn-link{background:transparent; border:1px solid var(--border); color:var(--text3);}
+  .btn-link:hover{background:var(--panel2);}
+
+  .layout{max-width:1280px; margin:0 auto; padding:32px; display:grid; grid-template-columns:1fr; gap:24px;}
+  @media(min-width:768px){.layout{grid-template-columns:260px 1fr; gap:32px; padding:32px;}}
+
+  .sidebar-title{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text3); margin-bottom:12px;}
+  .nav-btn{display:block; width:100%; text-align:left; padding:10px 12px; border-radius:6px; border:1px solid transparent; background:transparent; color:var(--text); margin-bottom:2px;}
+  .nav-btn:hover{background:var(--panel2);}
+  .nav-btn.active{background:var(--panel); border-color:var(--border2);}
+  .nav-btn .lbl{font-size:13px; font-weight:500; display:flex; align-items:center; gap:6px;}
+  .nav-btn .desc{font-size:11px; color:var(--text3); margin-top:1px;}
+  .pill-count{background:#ef4444; color:#fff; border-radius:999px; font-size:10px; padding:1px 6px;}
+
+  .back-btn{display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text3); background:none; border:none; margin-bottom:16px;}
+  .back-btn:hover{color:var(--text2);}
+
+  h2.modtitle{font-size:20px; font-weight:600; margin-bottom:8px;}
+  p.modsub{font-size:13px; color:var(--text3); margin-bottom:24px;}
+
+  .box{border:1px solid var(--border); border-radius:8px; padding:20px; margin-bottom:20px;}
+  .box-title{font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text3); margin-bottom:14px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:12px; color:var(--text3); margin-bottom:5px;}
+  .field input, .field textarea, .field select{
+    width:100%; padding:9px 11px; background:var(--panel); border:1px solid var(--border); border-radius:6px;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus{outline:none; border-color:var(--border2);}
+  textarea{resize:vertical; min-height:90px;}
+  textarea.tall{min-height:150px;}
+  .field-err{color:#f87171; font-size:11px; margin-top:4px;}
+
+  .card{border:1px solid var(--border); border-radius:10px; padding:16px;}
+  .stat-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-bottom:8px;}
+  @media(min-width:768px){.stat-grid{grid-template-columns:repeat(4,1fr);}}
+  .stat-num{font-size:26px; font-weight:700; font-family:monospace; margin-bottom:2px;}
+  .stat-lbl{font-size:11px; color:var(--text3);}
+
+  .mod-grid{display:grid; grid-template-columns:1fr; gap:12px;}
+  @media(min-width:640px){.mod-grid{grid-template-columns:1fr 1fr;}}
+  @media(min-width:768px){.mod-grid{grid-template-columns:1fr 1fr 1fr;}}
+  .mod-card{display:block; width:100%; text-align:left; border:none; background:none; padding:0;}
+  .mod-card .card{transition:.15s;}
+  .mod-card:hover .card{background:var(--panel2);}
+  .mod-card .mc-title{font-size:13px; font-weight:500; margin-bottom:3px;}
+  .mod-card .mc-desc{font-size:11px; color:var(--text3);}
+
+  .badge{display:inline-block; border-radius:5px; font-weight:500; font-size:11px; padding:3px 9px; border:1px solid;}
+  .badge.lg{font-size:13px; padding:5px 11px;}
+  .badge.sm{font-size:10px; padding:2px 6px;}
+  .badge.critical{background:var(--red-bg); color:var(--red-tx); border-color:var(--red);}
+  .badge.high{background:var(--orange-bg); color:var(--orange-tx); border-color:var(--orange);}
+  .badge.medium{background:var(--yellow-bg); color:var(--yellow-tx); border-color:var(--yellow);}
+  .badge.low{background:var(--green-bg); color:var(--green-tx); border-color:var(--green);}
+  .badge.neutral{background:#27272a; color:#d4d4d8; border-color:#3f3f46;}
+  .badge.success{background:var(--green-bg); color:#4ade80; border-color:#166534;}
+
+  .pill{display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px; font-size:11px; font-weight:500;}
+  .pill.on{background:#14532d80; color:#4ade80; border:1px solid #166534;}
+  .pill-dot{width:6px; height:6px; border-radius:999px; background:#4ade80;}
+
+  .result-box{background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px; margin-top:12px;}
+  .badge-row{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
+  .field-row{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:8px;}
+  .sub-label{font-size:11px; color:var(--text3); margin-bottom:6px; text-transform:capitalize;}
+  ul.bullets{list-style:none;}
+  ul.bullets li{font-size:13px; color:#d4d4d8; display:flex; gap:8px; align-items:flex-start; margin-bottom:4px;}
+  ul.bullets li .dot{margin-top:5px; width:5px; height:5px; border-radius:999px; background:#ca8a04; flex-shrink:0;}
+  ul.bullets li.red .dot{background:#dc2626;}
+  ul.bullets li.orange .dot{background:#ea580c;}
+  .kv{font-size:13px; color:#d4d4d8; margin-bottom:6px;}
+  .kv .k{color:var(--text3); text-transform:capitalize;}
+
+  pre.jsonout{background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:12px; font-size:11.5px; overflow:auto; white-space:pre-wrap; color:#d4d4d8; max-height:360px;}
+
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  table.boxed{border:1px solid var(--border2); border-radius:6px; overflow:hidden;}
+  thead tr{background:var(--panel); border-bottom:1px solid var(--border2);}
+  th{text-align:left; padding:10px 14px; font-size:11px; color:var(--text3); font-weight:500;}
+  td{padding:10px 14px; border-bottom:1px solid var(--border); font-size:12.5px;}
+  tr:last-child td{border-bottom:none;}
+  tr.hoverable:hover{background:var(--panel2);}
+  .empty-row{text-align:center; padding:32px; color:var(--text4); border:1px dashed var(--border); border-radius:6px; font-size:13px;}
+
+  .ai-banner{font-size:11px; color:var(--text3); margin-top:6px;}
+  .toast{margin-bottom:16px; padding:10px 16px; background:var(--green-bg); border:1px solid #166534; border-radius:6px; font-size:13px; color:#4ade80;}
+  .demo-banner{background:#1e293b; border:1px solid #334155; color:#93c5fd; font-size:12px; padding:8px 16px; text-align:center;}
+  a.lnk{color:#93c5fd; text-decoration:underline; cursor:pointer;}
+  .kanban{display:grid; grid-template-columns:1fr; gap:12px;}
+  @media(min-width:768px){.kanban{grid-template-columns:repeat(4,1fr);}}
+  .kanban-col-title{font-size:11px; text-transform:uppercase; color:var(--text3); margin-bottom:8px; letter-spacing:.05em;}
+  .kanban-card{border:1px solid var(--border); border-radius:6px; padding:10px; margin-bottom:8px; font-size:12px; background:var(--panel);}
+  .kanban-card .kc-title{font-weight:500; margin-bottom:4px;}
+  .barchart{display:flex; align-items:flex-end; gap:10px; height:120px; padding-top:8px;}
+  .bar-wrap{flex:1; display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end;}
+  .bar{width:100%; border-radius:4px 4px 0 0;}
+  .bar-lbl{font-size:11px; color:var(--text3); margin-top:6px;}
+  .bar-val{font-size:11px; color:var(--text2); margin-bottom:4px; font-family:monospace;}
+  .hash-chain{font-family:monospace; font-size:11px; color:var(--text3);}
+  .chk{color:#4ade80;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   ComplianceOS — static, offline, click-through UI/UX prototype.
+   Mirrors frontend/app/page.tsx module structure + the M2/M4 multi-industry
+   (X-Industry) behavior shipped in Sprint 4. All data below is mocked —
+   no network calls. For navigation/demo purposes only.
+   ════════════════════════════════════════════════════════════════════════ */
+
+const INDUSTRY_CONFIGS = {
+  financial: {
+    name: 'Financial Services', tagline: 'Banks, fintechs, payment processors, asset managers',
+    icon: '🏦', cls: 'financial', barColor:'#3b82f6',
+    regulators: 'BCRA · UIF · BACEN · CMF · FATF',
+    aiContext: 'Financial services company in LATAM subject to BCRA, UIF, BACEN, CMF, and FATF AML/CFT regulations.',
+    ticketCategories: ['AML Alert', 'KYC Exception', 'Regulatory Breach', 'Audit Finding', 'Risk Escalation', 'Suspicious Transaction', 'Regulatory Deadline'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'kyc', label: 'M3 — AML / KYC', desc: 'Screening + EDD + PEP checks' },
+      { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Transaction anomalies + drift' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'Model audit + safety' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
+      { id: 'predictive', label: 'M8 — Predictive Risk', desc: 'Risk & market simulation' },
+      { id: 'ticketing', label: 'M9 — Incident Mgmt', desc: 'AML alerts & regulatory incidents' },
+      { id: 'graph', label: 'Graph', desc: 'Compliance relationship graph' },
+      { id: 'crawler', label: 'Crawler', desc: 'BCRA + UIF live feed' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Deadline + compliance alerts' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+  insurance: {
+    name: 'Insurance', tagline: 'Insurers, brokers, reinsurers',
+    icon: '🛡️', cls: 'insurance', barColor:'#10b981',
+    regulators: 'SSN · SUSEP · CMF · CNSF',
+    aiContext: 'Insurance company in LATAM subject to SSN (Argentina), SUSEP (Brazil), CMF (Chile), and CNSF (Mexico) solvency and market conduct regulations.',
+    ticketCategories: ['Policy Compliance', 'Claims Dispute', 'Regulatory Filing', 'Solvency Alert', 'Fraud Investigation', 'Actuarial Review', 'Regulatory Deadline'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'monitoring', label: 'M4 — Solvency Monitor', desc: 'Capital & solvency drift' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'Model risk + audit' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Claims & compliance workflows' },
+      { id: 'predictive', label: 'M8 — Actuarial Risk', desc: 'Risk & exposure simulation' },
+      { id: 'ticketing', label: 'M9 — Claims & Compliance', desc: 'Policy incidents & filings' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Regulatory deadline alerts' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+  healthcare: {
+    name: 'Healthcare & Pharma', tagline: 'Hospitals, clinical labs, pharmaceutical companies',
+    icon: '⚕️', cls: 'healthcare', barColor:'#f43f5e',
+    regulators: 'ANMAT · ANVISA · COFEPRIS · LGPD · PDPA',
+    aiContext: 'Healthcare/pharma company in LATAM subject to ANMAT (Argentina), ANVISA (Brazil), COFEPRIS (Mexico), and LGPD/PDPA data privacy regulations.',
+    ticketCategories: ['Adverse Event', 'Safety Report', 'Regulatory Filing', 'Privacy Incident', 'Quality Deviation', 'Clinical Protocol Deviation', 'Regulatory Deadline'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'monitoring', label: 'M4 — Pharmacovigilance', desc: 'Safety signals + adverse events' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'Clinical AI audit + safety' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Safety & approval workflows' },
+      { id: 'predictive', label: 'M8 — Risk Simulation', desc: 'Regulatory risk & market access' },
+      { id: 'ticketing', label: 'M9 — Safety Reports', desc: 'Adverse events & safety filings' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Safety signals + deadlines' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+  corporate: {
+    name: 'Corporate / General', tagline: 'Any regulated company operating in LATAM',
+    icon: '🏢', cls: 'corporate', barColor:'#a1a1aa',
+    regulators: 'LGPD · PDPA · Labor · Environmental · Tax',
+    aiContext: 'Corporate entity in LATAM subject to labor, environmental, data privacy (LGPD/PDPA), and general corporate compliance regulations.',
+    ticketCategories: ['Legal Notice', 'Environmental Violation', 'Labor Compliance', 'Data Privacy', 'Tax Finding', 'General Compliance', 'Regulatory Deadline'],
+    modules: [
+      { id: 'home', label: 'Home', desc: 'Overview dashboard' },
+      { id: 'regulatory', label: 'M1 — Regulatory Intel', desc: 'Parse + map regulations' },
+      { id: 'copilot', label: 'M2 — Compliance Copilot', desc: 'Multi-jurisdiction Q&A' },
+      { id: 'monitoring', label: 'M4 — Monitoring', desc: 'Compliance drift detection' },
+      { id: 'governance', label: 'M5 — AI Governance', desc: 'AI risk + audit trail' },
+      { id: 'evidence', label: 'M6 — Evidence', desc: 'PDF extraction + custody chain' },
+      { id: 'crawler', label: 'Crawler', desc: 'Regulatory live feed' },
+      { id: 'workflows', label: 'M7 — Workflows', desc: 'Remediation workflows' },
+      { id: 'predictive', label: 'M8 — Predictive Risk', desc: 'Risk simulation & forecasting' },
+      { id: 'ticketing', label: 'M9 — Compliance Tickets', desc: 'Findings, violations & actions' },
+      { id: 'score', label: 'Risk Scores', desc: 'Entity compliance scores' },
+      { id: 'alerts', label: 'Alerts', desc: 'Regulatory deadline alerts' },
+      { id: 'audit', label: 'Audit Log', desc: 'Tamper-evident event history' },
+      { id: 'search', label: 'Search', desc: 'Hybrid keyword + semantic search' },
+    ],
+  },
+};
+
+// ── global mutable state (mock client) ──────────────────────────────────
+const S = {
+  industry: localStorage.getItem('cosp_industry') || null,
+  active: 'home',
+  sidebarOpen: false,
+  toast: null,
+  // module-local
+  question: '', copilotResult: null, copilotLoading: false,
+  kycJson: JSON.stringify({ full_name: "Maria Gonzalez", document_id: "27-34567890-1", country: "AR", occupation: "Import/export trading", monthly_income_usd: 4200, pep_flag: false }, null, 2),
+  kycResult: null,
+  sanctionName: '', sanctionDocId: '', sanctionCountry: '', sanctionResult: null,
+  monTxJson: JSON.stringify({ transaction_count: 4, total_amount: 18500, max_single_amount: 9800, high_risk_geography_flag: false }, null, 2),
+  monTxResult: null,
+  driftPolicy: 'All wire transfers above USD 10,000 must trigger an automatic CTR filing and EDD review before settlement.',
+  driftBehaviorJson: JSON.stringify({ transactions_over_threshold: 12, ctr_filed_count: 7, edd_reviews_completed: 5 }, null, 2),
+  driftResult: null,
+  regText: '', regResult: null,
+  workflowTitle: '', workflowTrigger: '', workflowSeverity: 'medium', workflowResult: null,
+  simBusinessModel: '', simCountries: 'AR,BR,MX', simResult: null,
+  ticketTitle: '', ticketDesc: '', ticketPriority: 'medium',
+  ticketChatQ: '', ticketChatResult: null,
+  evidenceResult: null,
+  searchQuery: '', searchResult: null,
+};
+
+const TICKETS = {}; // per industry, seeded lazily
+
+function fmtDate(d){ return d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) }
+function daysAgo(n){ const d = new Date(); d.setDate(d.getDate()-n); return d }
+function uid(){ return Math.random().toString(36).slice(2,9) }
+
+// ── seed per-industry mock data so screens feel alive on first visit ────
+function seedTickets(ind){
+  if (TICKETS[ind]) return TICKETS[ind]
+  const cats = INDUSTRY_CONFIGS[ind].ticketCategories
+  TICKETS[ind] = [
+    { id: uid(), title: cats[0], priority: 'critical', status: 'open', created_at: daysAgo(1) },
+    { id: uid(), title: cats[2], priority: 'high', status: 'in_progress', created_at: daysAgo(3) },
+    { id: uid(), title: cats[1], priority: 'medium', status: 'in_progress', created_at: daysAgo(6) },
+    { id: uid(), title: cats[4] || cats[0], priority: 'low', status: 'resolved', created_at: daysAgo(11) },
+  ]
+  return TICKETS[ind]
+}
+
+function seedAlerts(ind){
+  const base = {
+    financial: [
+      ['UIF SAR filing due', 'critical', 2],
+      ['BCRA Communication “A” 7XXX implementation deadline', 'high', 9],
+      ['Quarterly AML training certification expiring', 'medium', 21],
+    ],
+    insurance: [
+      ['SSN solvency ratio filing due', 'critical', 3],
+      ['SUSEP market-conduct report deadline', 'high', 12],
+      ['Reserve adequacy review due', 'medium', 18],
+    ],
+    healthcare: [
+      ['ANVISA expedited safety report — fatal outcome', 'critical', 1],
+      ['COFEPRIS device registration renewal', 'high', 14],
+      ['LGPD data subject request SLA', 'medium', 5],
+    ],
+    corporate: [
+      ['LGPD breach notification window closing', 'critical', 2],
+      ['Annual environmental disclosure due', 'high', 16],
+      ['Labor compliance audit follow-up', 'medium', 24],
+    ],
+  }
+  return base[ind].map(([title, sev, days]) => ({ title, severity: sev, due: daysAgo(-days) }))
+}
+
+function seedAudit(ind){
+  const actions = ['copilot.ask', 'kyc.screen_customer', 'monitoring.analyze_transactions', 'monitoring.detect_drift', 'governance.audit_response', 'evidence.extract']
+  let prevHash = '0'.repeat(64)
+  const rows = []
+  for (let i = 0; i < 8; i++){
+    const h = Array.from({length:64}, () => '0123456789abcdef'[Math.floor(Math.random()*16)]).join('')
+    rows.push({ ts: daysAgo(8-i), action: actions[i % actions.length], hash: h, prev: prevHash })
+    prevHash = h
+  }
+  return rows.reverse()
+}
+
+function seedScores(ind){
+  const entities = {
+    financial: ['Polkorp Pay SA', 'NeoBank LATAM', 'PSP Frontera SRL'],
+    insurance: ['Seguros del Sur SA', 'ReAndes Re', 'Broker Continental'],
+    healthcare: ['LabClinica Andina', 'PharmaLatam SA', 'BioSalud Mexico'],
+    corporate: ['Holding Austral SA', 'Comercial Pacifico', 'Grupo Industrial MX'],
+  }
+  return entities[ind].map((name, i) => ({ name, score: 92 - i*14, trend: i === 0 ? 'up' : i === 1 ? 'flat' : 'down' }))
+}
+
+// ── helpers for the M2 / M4 mock AI responses (mirrors backend schemas) ─
+function mockCopilotAnswer(q, ind){
+  const cfg = INDUSTRY_CONFIGS[ind]
+  const regs = cfg.regulators.split(' · ')
+  const lines = {
+    financial: [
+      `Under ${regs[0]} and ${regs[1]} regulations, this requires a documented risk-based assessment before onboarding or settlement.`,
+      `Established law: ${regs[1]} Resolution 30/2017 sets the CTR threshold at USD 10,000 equivalent; amounts below this fall into a regulatory grey area requiring internal policy judgment.`,
+      `Cross-reference ${regs[2]} Circular 3,978 if any leg of the flow touches Brazilian rails.`,
+    ],
+    insurance: [
+      `${regs[0]} solvency rules require this to be reflected in the next technical reserve calculation.`,
+      `Established law: minimum capital requirements are set by ${regs[0]}; market-conduct obligations for mis-selling fall under ${regs[1]} guidance — currently a grey area for embedded-insurance distribution.`,
+    ],
+    healthcare: [
+      `${regs[0]} pharmacovigilance rules classify this as requiring expedited reporting if seriousness criteria are met.`,
+      `Established law: ${regs[1]} RDC 406/2020 governs adverse-event reporting timelines in Brazil; ${regs[2]} requires parallel notification in Mexico.`,
+      `LGPD/PDPA: any patient-identifiable data in the report must be handled under data-minimization principles.`,
+    ],
+    corporate: [
+      `This falls under general LATAM labor and data-privacy obligations — specifically LGPD/PDPA data handling requirements.`,
+      `Established law: LGPD Art. 46 requires technical and administrative security measures; enforcement specifics vary by jurisdiction (grey area for SMEs).`,
+    ],
+  }
+  return {
+    success: true,
+    answer: (lines[ind] || lines.financial).join('\n\n') + `\n\nThis advisory is LATAM-scoped only and does not reference US regulators. Recommend human counsel review before filing.`,
+    rag_chunks_used: 3,
+    model_used: 'moonshotai/kimi-k2-instruct',
+    latency_ms: 1580 + Math.floor(Math.random()*900),
+    cost_usd: 0.0,
+  }
+}
+
+function mockKycResult(parsed){
+  const pep = !!parsed.pep_flag
+  const highRisk = pep || (parsed.monthly_income_usd && parsed.monthly_income_usd > 50000) || /import|export|crypto|cash/i.test(parsed.occupation || '')
+  const flags = []
+  if (pep) flags.push('Politically exposed person — enhanced due diligence required')
+  if (/import|export/i.test(parsed.occupation || '')) flags.push('Trade-based business — elevated trade-based ML exposure')
+  if (parsed.country && !['AR','BR','MX','CL','CO','PE','UY'].includes(parsed.country)) flags.push('Country outside standard LATAM operating footprint — verify residency')
+  return {
+    success: true,
+    risk_level: pep ? 'CRITICAL' : highRisk ? 'HIGH' : 'MEDIUM',
+    ai_risk_score: pep ? 88 : highRisk ? 64 : 31,
+    requires_human_review: pep || highRisk,
+    red_flags: flags,
+  }
+}
+
+const AML_INDUSTRY_TEXT = {
+  financial: { typologies: ['structuring', 'layering', 'mule_network_indicators'], action_field: 'merchant_account_action', filing_field: 'rof_sar_required' },
+  insurance: { typologies: ['claims_fraud', 'reserve_drift'], action_field: null, filing_field: 'regulatory_filing_required' },
+  corporate: { typologies: ['policy_violation', 'data_privacy_gap'], action_field: null, filing_field: 'regulatory_filing_required' },
+}
+
+function mockMonitoringResult(ind, parsed){
+  if (ind === 'healthcare') {
+    const deaths = Number(parsed.death_count || parsed.fatal_outcome_count || 0)
+    const serious = Number(parsed.serious_event_count || parsed.serious_adverse_event_count || 0)
+    const ruleFlags = []
+    let ruleScore = 0
+    if (deaths >= 1) { ruleFlags.push('fatal_outcome_reported'); ruleScore += 50 }
+    if (serious >= 3) { ruleFlags.push('serious_event_cluster'); ruleScore += 35 }
+    if (parsed.device_malfunction_flag) { ruleFlags.push('device_malfunction'); ruleScore += 25 }
+    if (parsed.counterfeit_suspected || parsed.diversion_suspected) { ruleFlags.push('counterfeit_or_diversion_suspected'); ruleScore += 30 }
+    ruleScore = Math.min(ruleScore, 100)
+    const aiScore = Math.min(100, ruleScore + 8)
+    const finalScore = Math.round(0.4*ruleScore + 0.6*aiScore)
+    const seriousness = deaths >= 1 ? 'FATAL' : serious >= 3 ? 'SERIOUS' : 'NON_SERIOUS'
+    return {
+      success: true, anomaly_score: finalScore, rule_flags: ruleFlags,
+      investigation_priority: finalScore >= 70 ? 'CRITICAL' : finalScore >= 40 ? 'HIGH' : finalScore >= 20 ? 'MEDIUM' : 'LOW',
+      analysis: {
+        signal_type: ruleFlags.length ? ruleFlags.map(f => f.replace('fatal_outcome_reported','adverse_event_cluster').replace('serious_event_cluster','adverse_event_cluster').replace('device_malfunction','device_malfunction').replace('counterfeit_or_diversion_suspected','counterfeit_suspected')) : ['adverse_event_cluster'],
+        seriousness,
+        evidence: [`${serious} serious adverse events recorded in current reporting period`, deaths >= 1 ? `${deaths} fatal outcome(s) reported` : 'No fatal outcomes reported'],
+        regulatory_action: deaths >= 1 ? 'REPORT_ANVISA' : serious >= 3 ? 'REPORT_ANMAT' : 'MONITOR',
+        expedited_report_required: deaths >= 1,
+        evidence_to_preserve: ['case_narratives', 'lab_results', 'device_logs'],
+        recommended_next_steps: deaths >= 1
+          ? ['File expedited ANVISA/ANMAT report within regulatory window', 'Preserve case files and chain of custody', 'Notify pharmacovigilance qualified person']
+          : ['Continue routine signal monitoring', 'Cross-check against device complaint database'],
+      },
+      model_used: 'nvidia/llama-3.3-nemotron-super-49b-v1', latency_ms: 2940,
+    }
+  }
+  const count = Number(parsed.transaction_count || parsed.count || 0)
+  const total = Number(parsed.total_amount || parsed.total || 0)
+  const maxSingle = Number(parsed.max_single_amount || 0)
+  const ruleFlags = []
+  let ruleScore = 0
+  if (count >= 5 || total >= 15000) { ruleFlags.push('velocity_threshold'); ruleScore += 30 }
+  if (maxSingle >= 10000) { ruleFlags.push('ctr_threshold'); ruleScore += 30 }
+  if (parsed.high_risk_geography_flag || parsed.high_risk_countries) { ruleFlags.push('high_risk_geography'); ruleScore += 25 }
+  ruleScore = Math.min(ruleScore, 100)
+  const aiScore = Math.min(100, ruleScore + 12)
+  const finalScore = Math.round(0.4*ruleScore + 0.6*aiScore)
+  const meta = AML_INDUSTRY_TEXT[ind] || AML_INDUSTRY_TEXT.financial
+  const analysis = {
+    patterns_detected: ruleFlags.length ? meta.typologies.slice(0, ruleFlags.length) : [],
+    likely_typologies: ind === 'financial' ? (ruleFlags.length ? ['structuring', 'smurfing'] : []) : undefined,
+    evidence: [`${count} transactions totaling $${total.toLocaleString()} in the last 30 days`, maxSingle ? `Largest single transaction: $${maxSingle.toLocaleString()}` : null].filter(Boolean),
+    investigation_priority: finalScore >= 70 ? 'CRITICAL' : finalScore >= 40 ? 'HIGH' : finalScore >= 20 ? 'MEDIUM' : 'LOW',
+    evidence_to_preserve: ['transaction_logs', 'counterparty_kyc', 'device_fingerprints'],
+    recommended_next_steps: finalScore >= 40
+      ? ['Escalate to AML investigation queue', 'Freeze or restrict account pending review', 'Prepare SAR/ROS filing draft']
+      : ['Continue automated monitoring', 'No immediate action required'],
+  }
+  if (meta.action_field) analysis[meta.action_field] = finalScore >= 70 ? 'FREEZE' : finalScore >= 40 ? 'RESTRICT' : 'MONITOR'
+  if (meta.filing_field) analysis[meta.filing_field] = finalScore >= 50
+  return {
+    success: true, anomaly_score: finalScore, rule_flags: ruleFlags,
+    investigation_priority: analysis.investigation_priority,
+    analysis, model_used: 'nvidia/llama-3.3-nemotron-super-49b-v1', latency_ms: 3100,
+  }
+}
+
+function mockDriftResult(ind, policy, behavior){
+  const total = Number(behavior.transactions_over_threshold || 0)
+  const compliant = Number(behavior.ctr_filed_count ?? behavior.edd_reviews_completed ?? 0)
+  const rate = total > 0 ? 1 - (compliant/total) : 0
+  const detected = rate > 0.15
+  const ctx = INDUSTRY_CONFIGS[ind].regulators
+  return {
+    success: true,
+    drift_detected: detected,
+    drift_severity: rate > 0.5 ? 'CRITICAL' : rate > 0.3 ? 'HIGH' : rate > 0.15 ? 'MEDIUM' : 'LOW',
+    policy_violation_rate: Math.round(rate*100)/100,
+    affected_operations_count: Math.max(0, total - compliant),
+    regulatory_exposure: detected ? [`Potential non-compliance under ${ctx}`] : [],
+    root_cause_hypotheses: detected ? ['Manual review backlog', 'Control automation gap between systems', 'Staff training gap on updated threshold'] : [],
+    immediate_actions: detected ? ['Escalate backlog to compliance ops', 'Notify control owner', 'Freeze affected workflow pending review'] : ['No immediate action — within tolerance'],
+    remediation_plan: detected ? ['Automate the missing control step', 'Add real-time alerting on threshold breach', 'Re-train staff on updated policy'] : [],
+  }
+}
+
+function mockRegulatoryParse(ind, text){
+  const words = (text || '').trim().split(/\s+/).filter(Boolean).length
+  if (words < 3) return null
+  return {
+    success: true,
+    obligations: [
+      { id: 'OBL-' + uid().toUpperCase(), description: 'Implement automated threshold monitoring per described control', deadline_days: 30, severity: 'high' },
+      { id: 'OBL-' + uid().toUpperCase(), description: 'File periodic compliance attestation with regulator', deadline_days: 90, severity: 'medium' },
+    ],
+    regulators_referenced: INDUSTRY_CONFIGS[ind].regulators.split(' · '),
+    confidence: 0.87,
+  }
+}
+
+// ── render ───────────────────────────────────────────────────────────────
+function render(){
+  const root = document.getElementById('root')
+  if (!S.industry){ root.innerHTML = renderIndustryPicker(); return }
+  const cfg = INDUSTRY_CONFIGS[S.industry]
+  root.innerHTML = renderApp(cfg)
+  attachHandlers(cfg)
+}
+
+function renderIndustryPicker(){
+  const cards = Object.entries(INDUSTRY_CONFIGS).map(([id, cfg]) => `
+    <button class="ind-card ${cfg.cls}" onclick="selectIndustry('${id}')">
+      <div class="ind-icon">${cfg.icon}</div>
+      <div class="ind-name">${cfg.name}</div>
+      <div class="ind-tag">${cfg.tagline}</div>
+      <div class="ind-reg">${cfg.regulators}</div>
+      <div class="ind-count">${cfg.modules.length - 1} modules configured</div>
+    </button>
+  `).join('')
+  return `
+    <div class="demo-banner">Static UI/UX prototype — no backend connected, all data is mocked for navigation purposes</div>
+    <div class="center-screen">
+      <div style="margin-bottom:48px; text-align:center;">
+        <h1 style="font-size:30px; font-weight:700; letter-spacing:-0.02em; margin-bottom:8px;">ComplianceOS</h1>
+        <p style="color:var(--text3); font-size:13px;">Select your industry to configure modules, AI context, and workflows</p>
+      </div>
+      <div class="grid-ind max-w-2xl">${cards}</div>
+    </div>
+  `
+}
+
+function renderApp(cfg){
+  return `
+    <div class="demo-banner">Static UI/UX prototype — no backend connected, all data is mocked for navigation purposes</div>
+    <header class="app-header">
+      <div class="header-row">
+        <div class="brand" style="cursor:pointer" onclick="setActive('home')">
+          <h1>ComplianceOS</h1>
+          <p>${cfg.name} · ${cfg.regulators}</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-ghost" onclick="setActive('home')">⌂ Dashboard</button>
+          <button class="btn btn-link" onclick="changeIndustry()">Change industry</button>
+        </div>
+      </div>
+    </header>
+    <div class="layout">
+      <aside>
+        <div class="sidebar-title">${cfg.name}</div>
+        <nav>
+          ${cfg.modules.map(m => `
+            <button class="nav-btn ${S.active===m.id?'active':''}" onclick="setActive('${m.id}')">
+              <div class="lbl">${m.label}${m.id==='alerts' ? `<span class="pill-count">${seedAlerts(S.industry).length}</span>` : ''}</div>
+              <div class="desc">${m.desc}</div>
+            </button>
+          `).join('')}
+        </nav>
+      </aside>
+      <section>
+        ${S.toast ? `<div class="toast">${S.toast}</div>` : ''}
+        ${S.active !== 'home' ? `<button class="back-btn" onclick="setActive('home')">← Dashboard</button>` : ''}
+        ${renderModule(cfg)}
+      </section>
+    </div>
+  `
+}
+
+function renderModule(cfg){
+  switch(S.active){
+    case 'home': return modHome(cfg)
+    case 'regulatory': return modRegulatory(cfg)
+    case 'copilot': return modCopilot(cfg)
+    case 'kyc': return modKyc(cfg)
+    case 'monitoring': return modMonitoring(cfg)
+    case 'governance': return modGovernance(cfg)
+    case 'evidence': return modEvidence(cfg)
+    case 'graph': return modGraph(cfg)
+    case 'crawler': return modCrawler(cfg)
+    case 'score': return modScore(cfg)
+    case 'alerts': return modAlerts(cfg)
+    case 'audit': return modAudit(cfg)
+    case 'search': return modSearch(cfg)
+    case 'workflows': return modWorkflows(cfg)
+    case 'predictive': return modPredictive(cfg)
+    case 'ticketing': return modTicketing(cfg)
+    default: return '<div>Unknown module</div>'
+  }
+}
+
+// ── module renderers ────────────────────────────────────────────────────
+function modHome(cfg){
+  const mods = cfg.modules.filter(m => m.id !== 'home')
+  return `
+    <div style="border:1px solid var(--border2); border-radius:12px; padding:22px; margin-bottom:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h2 style="font-size:22px; font-weight:700; margin-bottom:4px;">ComplianceOS</h2>
+          <p style="font-size:13px; color:#d4d4d8; font-weight:500;">${cfg.name}</p>
+          <p style="font-size:11px; color:var(--text3); margin-top:4px;">${cfg.regulators}</p>
+        </div>
+        <div style="text-align:right;">
+          <div class="pill on" style="margin-bottom:6px;"><span class="pill-dot"></span>Systems Online</div>
+          <div style="font-size:11px; color:var(--text4);">tenant: polkorp</div>
+        </div>
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="card"><div class="stat-num">${mods.length}</div><div class="stat-lbl">Active Modules</div></div>
+      <div class="card"><div class="stat-num" style="color:#60a5fa;">${184 + mods.length*3}</div><div class="stat-lbl">Regulations Indexed</div></div>
+      <div class="card"><div class="stat-num" style="color:#facc15;">${seedTickets(S.industry).filter(t=>t.status!=='resolved'&&t.status!=='closed').length}</div><div class="stat-lbl">Open Tickets</div></div>
+      <div class="card"><div class="stat-num" style="color:#d4d4d8;">${seedAudit(S.industry).length * 47}</div><div class="stat-lbl">Audit Events</div></div>
+    </div>
+    <div style="margin-top:24px; margin-bottom:24px;">
+      <div class="sidebar-title">Modules</div>
+      <div class="mod-grid">
+        ${mods.map(m => `
+          <button class="mod-card" onclick="setActive('${m.id}')">
+            <div class="card"><div class="mc-title">${m.label}</div><div class="mc-desc">${m.desc}</div></div>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+    <div class="card" style="font-size:12px; color:var(--text3);">
+      <span style="color:#d4d4d8; font-weight:500;">AI context: </span>${cfg.aiContext}
+    </div>
+  `
+}
+
+function modCopilot(cfg){
+  const r = S.copilotResult
+  return `
+    <h2 class="modtitle">Compliance Copilot</h2>
+    <p class="modsub">Ask any regulatory or compliance question. Powered by Kimi-K2 + fallbacks (NVIDIA NIM).</p>
+    <div class="field">
+      <textarea id="qInput" class="tall" placeholder="¿Qué cambia regulatoriamente si opero como PSP en Perú vs Argentina?">${S.question}</textarea>
+    </div>
+    <button class="btn btn-primary" onclick="askCopilot()" ${S.copilotLoading?'disabled':''}>${S.copilotLoading?'Thinking...':'Ask Copilot'}</button>
+    <div class="ai-banner">X-Industry: <span class="mono">${S.industry}</span> → system prompt scoped to ${cfg.regulators}</div>
+    ${r ? `
+      <div class="result-box">
+        <div style="white-space:pre-wrap; font-size:13px; color:#d4d4d8; margin-bottom:10px;">${r.answer}</div>
+        <div style="font-size:11px; color:var(--text4); display:flex; gap:14px; flex-wrap:wrap;">
+          <span>model: ${r.model_used}</span><span>rag_chunks: ${r.rag_chunks_used}</span><span>latency: ${r.latency_ms}ms</span>
+        </div>
+      </div>` : ''}
+  `
+}
+
+function modKyc(cfg){
+  const r = S.kycResult
+  return `
+    <h2 class="modtitle">M3 — KYC/AML</h2>
+    <p class="modsub">AI-powered customer risk screening and sanctions checks. Powered by NVIDIA NIM.</p>
+    <div class="box">
+      <div class="box-title">Screen Customer</div>
+      <div class="field"><label>Customer data (JSON)</label><textarea id="kycInput" class="tall mono">${S.kycJson}</textarea></div>
+      <button class="btn btn-primary" onclick="screenCustomer()">Screen Customer</button>
+      ${r ? `
+        <div class="result-box">
+          <div class="badge-row">
+            <span class="badge lg ${r.risk_level.toLowerCase()}">${r.risk_level}</span>
+            <span style="font-size:13px; color:var(--text3);">AI risk score: <span class="mono" style="color:#fafafa;">${r.ai_risk_score}/100</span></span>
+            <span class="badge ${r.requires_human_review?'medium':'neutral'}">${r.requires_human_review?'Requires human review':'No human review required'}</span>
+          </div>
+          ${r.red_flags.length ? `<div class="sub-label">Red flags</div><ul class="bullets">${r.red_flags.map(f=>`<li class="red"><span class="dot"></span>${f}</li>`).join('')}</ul>` : '<div style="font-size:12px;color:var(--text3);">No red flags detected.</div>'}
+        </div>` : ''}
+    </div>
+    <div class="box">
+      <div class="box-title">Sanctions Check</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px;">
+        <div class="field"><label>Name</label><input id="sName" placeholder="Full name" value="${S.sanctionName}"></div>
+        <div class="field"><label>Document ID</label><input id="sDoc" placeholder="e.g. 20-12345678-9" value="${S.sanctionDocId}"></div>
+        <div class="field"><label>Country</label><input id="sCountry" placeholder="AR" value="${S.sanctionCountry}"></div>
+      </div>
+      <button class="btn btn-primary" onclick="checkSanctions()">Check Sanctions</button>
+      ${S.sanctionResult ? `<pre class="jsonout">${JSON.stringify(S.sanctionResult, null, 2)}</pre>` : ''}
+    </div>
+  `
+}
+
+function badgeForScore(score){
+  if (score >= 70) return 'critical'
+  if (score >= 40) return 'high'
+  return 'low'
+}
+function badgeForLevel(level){
+  const m = {CRITICAL:'critical', HIGH:'high', MEDIUM:'medium', LOW:'low', FATAL:'critical', SERIOUS:'high', NON_SERIOUS:'low'}
+  return m[(level||'').toUpperCase()] || 'neutral'
+}
+
+function renderAnalysisFields(analysis){
+  let out = ''
+  for (const [key, val] of Object.entries(analysis || {})){
+    if (val === undefined || val === null) continue
+    const label = key.replace(/_/g,' ')
+    if (Array.isArray(val) && val.length){
+      out += `<div style="margin-bottom:10px;"><div class="sub-label">${label}</div><ul class="bullets">${val.map(v=>`<li class="orange"><span class="dot"></span>${typeof v==='string'?v:JSON.stringify(v)}</li>`).join('')}</ul></div>`
+    } else if (typeof val === 'string' && val){
+      out += `<div class="kv"><span class="k">${label}:</span> ${val}</div>`
+    } else if (typeof val === 'boolean'){
+      out += `<div class="kv"><span class="k">${label}:</span> ${val?'Yes':'No'}</div>`
+    }
+  }
+  return out
+}
+
+function modMonitoring(cfg){
+  const r = S.monTxResult
+  const d = S.driftResult
+  const isPv = S.industry === 'healthcare'
+  const title = isPv ? 'M4 — Pharmacovigilance' : (S.industry === 'insurance' ? 'M4 — Solvency Monitor' : 'M4 — Continuous Monitoring')
+  return `
+    <h2 class="modtitle">${title}</h2>
+    <p class="modsub">${isPv ? 'Analyze safety signal data for adverse-event clusters and quality deviations.' : 'Analyze transaction patterns for anomalies, and detect policy drift in AI behavior.'}</p>
+    <div class="box">
+      <div class="box-title">${isPv ? 'Safety Signal Analysis' : 'Transaction Analysis'}</div>
+      <div class="field"><label>${isPv ? 'Safety signal summary (JSON)' : 'Transaction summary (JSON)'}</label><textarea id="monInput" class="tall mono">${S.monTxJson}</textarea></div>
+      <div id="monErr" class="field-err hidden"></div>
+      <button class="btn btn-primary" onclick="analyzeTransactions()">Analyze ${isPv ? 'Signals' : 'Transactions'}</button>
+      <div class="ai-banner">X-Industry: <span class="mono">${S.industry}</span> → ${isPv ? 'pharmacovigilance schema (signal_score)' : 'AML schema (anomaly_score)'}</div>
+      ${r ? `
+        <div class="result-box">
+          <div class="badge-row">
+            <span class="badge lg ${badgeForScore(r.anomaly_score)}">Score: ${r.anomaly_score}</span>
+            <span class="badge lg ${badgeForLevel(r.investigation_priority)}">${r.investigation_priority}</span>
+            ${r.analysis.seriousness ? `<span class="badge lg ${badgeForLevel(r.analysis.seriousness)}">${r.analysis.seriousness}</span>` : ''}
+          </div>
+          ${r.rule_flags.length ? `<div style="margin-bottom:10px;"><div class="sub-label">Rule-based flags</div><div class="field-row">${r.rule_flags.map(f=>`<span class="badge sm neutral">${f}</span>`).join('')}</div></div>` : ''}
+          ${renderAnalysisFields(r.analysis)}
+        </div>` : ''}
+    </div>
+    <div class="box">
+      <div class="box-title">Policy Drift Detection</div>
+      <div class="field"><label>Policy description</label><textarea id="driftPolicy" placeholder="Describe the expected policy or control behavior...">${S.driftPolicy}</textarea></div>
+      <div class="field"><label>Observed behavior (JSON)</label><textarea id="driftBehavior" class="mono">${S.driftBehaviorJson}</textarea></div>
+      <button class="btn btn-primary" onclick="detectDrift()">Detect Drift</button>
+      ${d ? `
+        <div class="result-box">
+          <div class="badge-row">
+            <span class="badge ${d.drift_detected?'critical':'success'}">${d.drift_detected?'Drift detected':'No drift'}</span>
+            <span style="font-size:13px; color:var(--text3);">Violation rate: <span class="mono" style="color:#fafafa;">${Math.round(d.policy_violation_rate*100)}%</span></span>
+            <span class="badge ${badgeForLevel(d.drift_severity)}">${d.drift_severity}</span>
+          </div>
+          ${d.root_cause_hypotheses.length ? `<div style="margin-bottom:10px;"><div class="sub-label">Root cause hypotheses</div><ul class="bullets">${d.root_cause_hypotheses.map(f=>`<li class="orange"><span class="dot"></span>${f}</li>`).join('')}</ul></div>` : ''}
+          ${d.immediate_actions.length ? `<div><div class="sub-label">Immediate actions</div><ul class="bullets">${d.immediate_actions.map(f=>`<li><span class="dot"></span>${f}</li>`).join('')}</ul></div>` : ''}
+        </div>` : ''}
+    </div>
+  `
+}
+
+function modGovernance(cfg){
+  const rows = [
+    ['nvidia/llama-3.3-nemotron-super-49b-v1', 'M1 / M3 / M4', 412, '$0.00', '31.2s'],
+    ['meta/llama-3.3-70b-instruct', 'general', 188, '$0.00', '20.4s'],
+    ['moonshotai/kimi-k2-instruct', 'M2 / M5', 296, '$0.00', '15.1s'],
+  ]
+  return `
+    <h2 class="modtitle">M5 — AI Governance</h2>
+    <p class="modsub">Audit AI responses for factual accuracy. Check inputs for prompt injection attempts.</p>
+    <div class="box">
+      <div class="box-title">Model Usage (last 30 days)</div>
+      <table class="boxed">
+        <thead><tr><th>Model</th><th>Used by</th><th>Calls</th><th>Cost</th><th>Avg latency</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr class="hoverable"><td class="mono">${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+    <div class="box">
+      <div class="box-title">Response Audit</div>
+      <div class="field"><label>AI response to audit</label><textarea placeholder="Paste an AI-generated compliance response to check for hallucination, unsupported claims, or prompt injection..."></textarea></div>
+      <button class="btn btn-primary" onclick="toast('Audit queued — would call governance.audit_response()')">Run Audit</button>
+    </div>
+  `
+}
+
+function modEvidence(cfg){
+  return `
+    <h2 class="modtitle">M6 — Evidence Automation</h2>
+    <p class="modsub">Upload regulator PDFs for structured extraction with chain-of-custody tracking.</p>
+    <div class="box">
+      <div class="box-title">Upload Document</div>
+      <div style="border:1px dashed var(--border2); border-radius:8px; padding:32px; text-align:center; color:var(--text3); font-size:13px; margin-bottom:14px; cursor:pointer;" onclick="extractEvidence()">
+        📄 Drop a PDF here or click to simulate upload
+      </div>
+      ${S.evidenceResult ? `
+        <div class="result-box">
+          <div class="kv"><span class="k">document_id:</span> ${S.evidenceResult.id}</div>
+          <div class="kv"><span class="k">pages:</span> ${S.evidenceResult.pages}</div>
+          <div class="kv"><span class="k">sha256:</span> <span class="mono">${S.evidenceResult.hash}</span></div>
+          <div class="sub-label" style="margin-top:8px;">Extracted fields</div>
+          <ul class="bullets">${S.evidenceResult.fields.map(f=>`<li><span class="dot"></span>${f}</li>`).join('')}</ul>
+        </div>` : ''}
+    </div>
+    <div class="box">
+      <div class="box-title">Chain of Custody</div>
+      <table class="boxed"><thead><tr><th>Doc</th><th>Action</th><th>Actor</th><th>Time</th></tr></thead>
+        <tbody>
+          <tr><td>BCRA_Comunicacion_A7XXX.pdf</td><td>extracted</td><td>system</td><td>${fmtDate(daysAgo(2))}</td></tr>
+          <tr><td>UIF_Resolucion_30_2017.pdf</td><td>reviewed</td><td>analyst@polkorp</td><td>${fmtDate(daysAgo(5))}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+function modGraph(cfg){
+  return `
+    <h2 class="modtitle">Compliance Graph</h2>
+    <p class="modsub">Regulations → obligations → entities → controls, modeled as a relationship graph.</p>
+    <div class="box">
+      <div class="box-title">Graph Summary</div>
+      <div class="stat-grid">
+        <div class="card"><div class="stat-num" style="color:#60a5fa;">142</div><div class="stat-lbl">Regulation nodes</div></div>
+        <div class="card"><div class="stat-num" style="color:#facc15;">389</div><div class="stat-lbl">Obligation nodes</div></div>
+        <div class="card"><div class="stat-num" style="color:#4ade80;">27</div><div class="stat-lbl">Entity nodes</div></div>
+        <div class="card"><div class="stat-num" style="color:#d4d4d8;">61</div><div class="stat-lbl">Control nodes</div></div>
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-title">Sample Relationships</div>
+      <ul class="bullets">
+        <li><span class="dot"></span><span class="mono">BCRA Com. "A" 7724</span> → requires → <span class="mono">OBL-4F2A</span> → satisfied by → <span class="mono">Control: real-time velocity check</span></li>
+        <li><span class="dot"></span><span class="mono">UIF Res. 30/2017</span> → applies to → <span class="mono">Entity: Polkorp Pay SA</span></li>
+        <li><span class="dot"></span><span class="mono">Control: real-time velocity check</span> → monitored by → <span class="mono">M4 Monitoring Engine</span></li>
+      </ul>
+    </div>
+  `
+}
+
+function modCrawler(cfg){
+  const feed = [
+    ['BCRA', 'Comunicación "A" 7811 — KYC digital onboarding update', daysAgo(1)],
+    ['UIF', 'Resolución 45/2026 — Updated CTR thresholds', daysAgo(4)],
+    ['BACEN', 'Circular 4,015 — PIX fraud liability rules', daysAgo(9)],
+  ]
+  return `
+    <h2 class="modtitle">Regulatory Crawler</h2>
+    <p class="modsub">Scheduled crawler ingesting new regulations from ${cfg.regulators}.</p>
+    <div class="box">
+      <div class="box-title">Latest Ingested</div>
+      <table class="boxed"><thead><tr><th>Source</th><th>Title</th><th>Fetched</th></tr></thead>
+        <tbody>${feed.map(f=>`<tr class="hoverable"><td><span class="badge neutral">${f[0]}</span></td><td>${f[1]}</td><td>${fmtDate(f[2])}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `
+}
+
+function modScore(cfg){
+  const scores = seedScores(S.industry)
+  return `
+    <h2 class="modtitle">Risk Scores</h2>
+    <p class="modsub">Entity-level compliance risk scores, recalculated nightly.</p>
+    <div class="box">
+      <table class="boxed"><thead><tr><th>Entity</th><th>Score</th><th>Trend</th></tr></thead>
+        <tbody>${scores.map(s=>`<tr class="hoverable"><td>${s.name}</td><td><span class="badge ${s.score>=80?'low':s.score>=60?'medium':'high'}">${s.score}</span></td><td>${s.trend==='up'?'▲ improving':s.trend==='down'?'▼ declining':'— stable'}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `
+}
+
+function modAlerts(cfg){
+  const alerts = seedAlerts(S.industry)
+  return `
+    <h2 class="modtitle">Alerts</h2>
+    <p class="modsub">Deadline and compliance alerts for ${cfg.name}.</p>
+    <div class="box">
+      ${alerts.map(a => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-bottom:1px solid var(--border);">
+          <div>
+            <div style="font-size:13px;">${a.title}</div>
+            <div style="font-size:11px; color:var(--text3);">Due ${fmtDate(a.due)}</div>
+          </div>
+          <span class="badge ${badgeForLevel(a.severity)}">${a.severity.toUpperCase()}</span>
+        </div>
+      `).join('')}
+    </div>
+  `
+}
+
+function modAudit(cfg){
+  const rows = seedAudit(S.industry)
+  return `
+    <h2 class="modtitle">Audit Log</h2>
+    <p class="modsub">Tamper-evident, insert-only event history. Each entry's hash chains to the previous entry.</p>
+    <div class="box">
+      <table class="boxed"><thead><tr><th>Time</th><th>Action</th><th>Hash</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr class="hoverable"><td>${fmtDate(r.ts)}</td><td class="mono">${r.action}</td><td class="hash-chain"><span class="chk">✓</span> ${r.hash.slice(0,16)}…</td></tr>`).join('')}</tbody>
+      </table>
+      <div style="font-size:11px; color:var(--text3); margin-top:10px;">Chain integrity verified — 0 tampered entries detected.</div>
+    </div>
+  `
+}
+
+function modSearch(cfg){
+  return `
+    <h2 class="modtitle">Search</h2>
+    <p class="modsub">Hybrid keyword + semantic search across regulations, tickets, and audit events.</p>
+    <div class="field"><input id="searchInput" placeholder="e.g. UIF reporting threshold" value="${S.searchQuery}"></div>
+    <button class="btn btn-primary" onclick="runSearch()">Search</button>
+    ${S.searchResult ? `
+      <div class="result-box">
+        ${S.searchResult.map(r => `
+          <div style="padding:8px 0; border-bottom:1px solid var(--border);">
+            <div style="font-size:13px; color:#d4d4d8;">${r.title}</div>
+            <div style="font-size:11px; color:var(--text3);">${r.snippet} · relevance ${r.score}%</div>
+          </div>
+        `).join('')}
+      </div>` : ''}
+  `
+}
+
+function modWorkflows(cfg){
+  const cols = [
+    ['Open', ['Remediate KYC backlog', 'Update CTR threshold rule']],
+    ['In Progress', ['UIF reporting gap remediation']],
+    ['Review', ['LGPD data mapping update']],
+    ['Done', ['Q1 AML training rollout']],
+  ]
+  return `
+    <h2 class="modtitle">M7 — Remediation Workflows</h2>
+    <p class="modsub">Create and track AI-driven compliance remediation workflows.</p>
+    <div class="box">
+      <div class="box-title">Create Workflow</div>
+      <div class="field"><label>Workflow title</label><input id="wfTitle" placeholder="e.g. Remediate UIF Reporting Gap" value="${S.workflowTitle}"></div>
+      <div class="field"><label>Trigger source</label><input id="wfTrigger" placeholder="e.g. M4 anomaly detection, manual review" value="${S.workflowTrigger}"></div>
+      <div class="field"><label>Severity</label>
+        <select id="wfSeverity">
+          ${['low','medium','high','critical'].map(s=>`<option value="${s}" ${S.workflowSeverity===s?'selected':''}>${s[0].toUpperCase()+s.slice(1)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="createWorkflow()">Create Workflow</button>
+      ${S.workflowResult ? `<pre class="jsonout">${JSON.stringify(S.workflowResult, null, 2)}</pre>` : ''}
+    </div>
+    <div class="box">
+      <div class="box-title">Pipeline</div>
+      <div class="kanban">
+        ${cols.map(([name, items]) => `
+          <div><div class="kanban-col-title">${name}</div>${items.map(i=>`<div class="kanban-card"><div class="kc-title">${i}</div></div>`).join('')}</div>
+        `).join('')}
+      </div>
+    </div>
+  `
+}
+
+function modPredictive(cfg){
+  const r = S.simResult
+  const jurisdictions = [
+    { c: 'Argentina', risk: 58 }, { c: 'Brazil', risk: 41 }, { c: 'Mexico', risk: 47 }, { c: 'Chile', risk: 29 },
+  ]
+  return `
+    <h2 class="modtitle">M8 — Predictive Risk</h2>
+    <p class="modsub">Jurisdiction risk scoring and market entry simulation.</p>
+    <div class="box">
+      <div class="box-title">Jurisdiction Risk Scores</div>
+      <div class="barchart">
+        ${jurisdictions.map(j => `
+          <div class="bar-wrap">
+            <div class="bar-val">${j.risk}</div>
+            <div class="bar" style="height:${j.risk}%; background:${cfg.barColor};"></div>
+            <div class="bar-lbl">${j.c}</div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="box">
+      <div class="box-title">Market Entry Simulation</div>
+      <div class="field"><label>Business model</label><input id="simModel" placeholder="e.g. Digital payments PSP, crypto exchange" value="${S.simBusinessModel}"></div>
+      <div class="field"><label>Countries (comma-separated)</label><input id="simCountries" class="mono" value="${S.simCountries}"></div>
+      <button class="btn btn-primary" onclick="simulateMarketEntry()">Simulate Market Entry</button>
+      ${r ? `<pre class="jsonout">${JSON.stringify(r, null, 2)}</pre>` : ''}
+    </div>
+  `
+}
+
+function modTicketing(cfg){
+  const tickets = seedTickets(S.industry)
+  const label = cfg.modules.find(m=>m.id==='ticketing')?.label || 'M9 — Ticketing'
+  return `
+    <h2 class="modtitle">${label}</h2>
+    <p class="modsub">Create and manage compliance incidents for ${cfg.name}. Track status from open to resolved.</p>
+    <div class="box">
+      <div class="box-title">New Ticket</div>
+      <div class="field"><label>Category</label>
+        <select id="ticketCat">
+          <option value="">— select category —</option>
+          ${cfg.ticketCategories.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Description</label><textarea id="ticketDesc" placeholder="Describe the compliance issue, regulation reference, or finding..."></textarea></div>
+      <div class="field"><label>Priority</label>
+        <select id="ticketPrio">${['low','medium','high','critical'].map(p=>`<option value="${p}">${p[0].toUpperCase()+p.slice(1)}</option>`).join('')}</select>
+      </div>
+      <button class="btn btn-primary" onclick="createTicket()">Create</button>
+    </div>
+    <div class="box">
+      <div class="box-title">All Tickets</div>
+      <table class="boxed">
+        <thead><tr><th>Title</th><th>Priority</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody>
+          ${tickets.map(t => `
+            <tr class="hoverable">
+              <td>${t.title}</td>
+              <td><span class="badge sm ${t.priority==='critical'?'critical':t.priority==='high'?'high':t.priority==='medium'?'medium':'neutral'}">${t.priority}</span></td>
+              <td class="mono" style="color:${t.status==='resolved'?'#4ade80':t.status==='in_progress'?'#facc15':'#a1a1aa'};">${t.status}</td>
+              <td style="color:var(--text3);">${fmtDate(t.created_at)}</td>
+              <td>${t.status!=='resolved'&&t.status!=='closed' ? `
+                <select onchange="updateTicketStatus('${t.id}', this.value)">
+                  <option value="" disabled selected>Update</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </select>` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="box">
+      <div class="box-title">AI Compliance Assistant</div>
+      <p style="font-size:11px; color:var(--text4); margin-bottom:10px;">Ask the Copilot about regulatory obligations, deadlines, or actions for this ticket.</p>
+      <div class="field"><textarea id="ticketChatQ" placeholder="e.g. What are the UIF reporting deadlines for an AML Alert in Argentina?">${S.ticketChatQ}</textarea></div>
+      <button class="btn btn-ghost" onclick="askTicketAI()">Ask AI</button>
+      ${S.ticketChatResult ? `<div class="result-box" style="white-space:pre-wrap; font-size:13px; color:#d4d4d8;">${S.ticketChatResult}</div>` : ''}
+    </div>
+  `
+}
+
+function modRegulatory(cfg){
+  const r = S.regResult
+  return `
+    <h2 class="modtitle">M1 — Regulatory Intelligence</h2>
+    <p class="modsub">Paste regulatory text to extract structured, machine-readable obligations.</p>
+    <div class="box">
+      <div class="field"><label>Regulation text</label><textarea id="regInput" class="tall" placeholder="Paste a regulation excerpt, communication, or circular...">${S.regText}</textarea></div>
+      <button class="btn btn-primary" onclick="parseRegulation()">Parse Regulation</button>
+      ${r ? `
+        <div class="result-box">
+          <div class="sub-label">Obligations extracted</div>
+          ${r.obligations.map(o => `
+            <div class="kv" style="margin-bottom:8px;">
+              <span class="badge sm ${badgeForLevel(o.severity)}">${o.severity}</span>
+              <span class="mono" style="color:var(--text3);"> ${o.id}</span> — ${o.description} <span style="color:var(--text3);">(due in ${o.deadline_days}d)</span>
+            </div>`).join('')}
+          <div style="font-size:11px; color:var(--text3); margin-top:8px;">Regulators referenced: ${r.regulators_referenced.join(', ')} · confidence ${Math.round(r.confidence*100)}%</div>
+        </div>` : (r === null ? '' : '')}
+    </div>
+  `
+}
+
+// ── handlers ─────────────────────────────────────────────────────────────
+function selectIndustry(id){ localStorage.setItem('cosp_industry', id); S.industry = id; S.active = 'home'; render() }
+function changeIndustry(){ localStorage.removeItem('cosp_industry'); S.industry = null; render() }
+function setActive(id){ S.active = id; S.sidebarOpen = false; render() }
+function toast(msg){ S.toast = msg; render(); setTimeout(()=>{ S.toast = null; render() }, 2500) }
+
+function attachHandlers(){ /* all events are inline onclick; nothing to attach */ }
+
+function askCopilot(){
+  S.question = document.getElementById('qInput').value
+  if (!S.question.trim()) return
+  S.copilotLoading = true; render()
+  setTimeout(() => {
+    S.copilotResult = mockCopilotAnswer(S.question, S.industry)
+    S.copilotLoading = false
+    render()
+  }, 700)
+}
+
+function screenCustomer(){
+  const raw = document.getElementById('kycInput').value
+  S.kycJson = raw
+  try {
+    const parsed = JSON.parse(raw)
+    S.kycResult = mockKycResult(parsed)
+  } catch(e) { toast('Invalid JSON: ' + e.message); return }
+  render()
+}
+
+function checkSanctions(){
+  S.sanctionName = document.getElementById('sName').value
+  S.sanctionDocId = document.getElementById('sDoc').value
+  S.sanctionCountry = document.getElementById('sCountry').value
+  if (!S.sanctionName.trim()) return
+  S.sanctionResult = {
+    success: true, name_searched: S.sanctionName, lists_checked: ['OFAC SDN', 'UN Consolidated', 'UIF Argentina', 'EU Sanctions'],
+    matches_found: /vladimir|sanction|test-match/i.test(S.sanctionName) ? 1 : 0,
+    match_confidence: /vladimir|sanction|test-match/i.test(S.sanctionName) ? 0.92 : 0.0,
+  }
+  render()
+}
+
+function analyzeTransactions(){
+  const raw = document.getElementById('monInput').value
+  S.monTxJson = raw
+  let parsed
+  try { parsed = JSON.parse(raw) } catch(e) { toast('Invalid JSON: ' + e.message); return }
+  S.monTxResult = mockMonitoringResult(S.industry, parsed)
+  render()
+}
+
+function detectDrift(){
+  S.driftPolicy = document.getElementById('driftPolicy').value
+  const raw = document.getElementById('driftBehavior').value
+  S.driftBehaviorJson = raw
+  let parsed
+  try { parsed = JSON.parse(raw) } catch(e) { toast('Invalid JSON: ' + e.message); return }
+  if (!S.driftPolicy.trim()) return
+  S.driftResult = mockDriftResult(S.industry, S.driftPolicy, parsed)
+  render()
+}
+
+function parseRegulation(){
+  S.regText = document.getElementById('regInput').value
+  const result = mockRegulatoryParse(S.industry, S.regText)
+  if (!result) { toast('Enter regulation text first'); return }
+  S.regResult = result
+  render()
+}
+
+function createWorkflow(){
+  S.workflowTitle = document.getElementById('wfTitle').value
+  S.workflowTrigger = document.getElementById('wfTrigger').value
+  S.workflowSeverity = document.getElementById('wfSeverity').value
+  if (!S.workflowTitle.trim() || !S.workflowTrigger.trim()) return
+  S.workflowResult = { id: 'WF-' + uid().toUpperCase(), title: S.workflowTitle, trigger: S.workflowTrigger, severity: S.workflowSeverity, status: 'open', created_at: new Date().toISOString() }
+  render()
+}
+
+function simulateMarketEntry(){
+  S.simBusinessModel = document.getElementById('simModel').value
+  S.simCountries = document.getElementById('simCountries').value
+  if (!S.simBusinessModel.trim()) return
+  const countries = S.simCountries.split(',').map(s=>s.trim()).filter(Boolean)
+  S.simResult = {
+    business_model: S.simBusinessModel,
+    countries_evaluated: countries,
+    go_no_go: countries.length > 2 ? 'CONDITIONAL_GO' : 'GO',
+    estimated_compliance_cost_y1_usd: `$${(120000 + countries.length*45000).toLocaleString()}`,
+    timeline_months: 4 + countries.length*2,
+    blockers: countries.includes('BR') ? ['BACEN local incorporation requirement'] : [],
+  }
+  render()
+}
+
+function createTicket(){
+  const cat = document.getElementById('ticketCat').value
+  const desc = document.getElementById('ticketDesc').value
+  const prio = document.getElementById('ticketPrio').value
+  if (!cat) { toast('Select a category first'); return }
+  seedTickets(S.industry).unshift({ id: uid(), title: cat, priority: prio, status: 'open', created_at: new Date() })
+  toast('Ticket created')
+}
+
+function updateTicketStatus(id, status){
+  const t = seedTickets(S.industry).find(t => t.id === id)
+  if (t) t.status = status
+  render()
+}
+
+function askTicketAI(){
+  S.ticketChatQ = document.getElementById('ticketChatQ').value
+  if (!S.ticketChatQ.trim()) return
+  S.ticketChatResult = mockCopilotAnswer(S.ticketChatQ, S.industry).answer
+  render()
+}
+
+function extractEvidence(){
+  S.evidenceResult = {
+    id: 'DOC-' + uid().toUpperCase(), pages: 4 + Math.floor(Math.random()*8),
+    hash: Array.from({length:64}, () => '0123456789abcdef'[Math.floor(Math.random()*16)]).join(''),
+    fields: ['issuing_authority', 'effective_date', 'obligation_summary', 'penalty_schedule'],
+  }
+  render()
+}
+
+function runSearch(){
+  S.searchQuery = document.getElementById('searchInput').value
+  if (!S.searchQuery.trim()) return
+  S.searchResult = [
+    { title: `${INDUSTRY_CONFIGS[S.industry].regulators.split(' · ')[0]} — relevant communication`, snippet: 'Matched via semantic similarity to query', score: 91 },
+    { title: 'Internal control: ' + S.searchQuery, snippet: 'Matched via keyword index', score: 74 },
+  ]
+  render()
+}
+
+render()
+</script>
+</body>
+</html>
