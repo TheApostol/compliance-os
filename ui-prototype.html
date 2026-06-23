@@ -264,9 +264,19 @@ const INDUSTRY_CONFIGS = {
   },
 };
 
+// ── safe storage wrapper — localStorage throws SecurityError on opaque
+// origins (e.g. double-clicking this file open as file:// in some browsers),
+// which would otherwise abort the whole script before render() ever runs.
+const safeStorage = {
+  _mem: {},
+  getItem(k){ try { return window.localStorage.getItem(k) } catch(e){ return this._mem[k] ?? null } },
+  setItem(k, v){ try { window.localStorage.setItem(k, v) } catch(e){ this._mem[k] = v } },
+  removeItem(k){ try { window.localStorage.removeItem(k) } catch(e){ delete this._mem[k] } },
+}
+
 // ── global mutable state (mock client) ──────────────────────────────────
 const S = {
-  industry: localStorage.getItem('cosp_industry') || null,
+  industry: safeStorage.getItem('cosp_industry') || null,
   active: 'home',
   sidebarOpen: false,
   toast: null,
@@ -1057,8 +1067,8 @@ function modRegulatory(cfg){
 }
 
 // ── handlers ─────────────────────────────────────────────────────────────
-function selectIndustry(id){ localStorage.setItem('cosp_industry', id); S.industry = id; S.active = 'home'; render() }
-function changeIndustry(){ localStorage.removeItem('cosp_industry'); S.industry = null; render() }
+function selectIndustry(id){ safeStorage.setItem('cosp_industry', id); S.industry = id; S.active = 'home'; render() }
+function changeIndustry(){ safeStorage.removeItem('cosp_industry'); S.industry = null; render() }
 function setActive(id){ S.active = id; S.sidebarOpen = false; render() }
 function toast(msg){ S.toast = msg; render(); setTimeout(()=>{ S.toast = null; render() }, 2500) }
 
