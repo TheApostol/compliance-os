@@ -25,7 +25,9 @@
 
 **Tier 2: HIGH** (12 modes)
 - F6-F7: Connection pool exhaustion (Qdrant, PostgreSQL)
-- F9-F18: Workflow deadlock, evidence custody, embedding deprecation, case race condition, deadline misses, crawler silent failure, LLM parsing, request timeout, auth token expiry, graph transaction timeout
+- F9 ✅ **RESOLVED** (2026-06-23): workflow deadlock — real DAG validation + dependency/approval
+  gating + timeout escalation shipped in `app/modules/workflows/engine.py`
+- F10-F18: evidence custody, embedding deprecation, case race condition, deadline misses, crawler silent failure, LLM parsing, request timeout, auth token expiry, graph transaction timeout
 
 ### 3. **5-Phase Implementation Roadmap (13 Weeks)**
 
@@ -38,7 +40,7 @@
 | **Phase 4** | W10-11 | Dashboard + integration tests | 2026-08-27 |
 | **Phase 5** | W12-13 | Hardening + compliance audit + rollout | 2026-09-10 |
 
-**Risk Score Trajectory:** 59/100 (current) → 11/100 (target)
+**Risk Score Trajectory:** 59/100 (baseline) → **55/100 (2026-06-23, post M7/M8/M10)** → 11/100 (target)
 
 ### 4. **Actionable Artifacts**
 
@@ -53,6 +55,26 @@
 **Files Modified:**
 - `backend/app/main.py` — Added premortem router
 - `backend/app/db/models.py` — Added Premortem models + enums
+
+### 5. **2026-06-23 Update — M7/M8 Fixed, M10 Shipped, AI OS Architecture Documented**
+- **M7 (Workflows):** rebuilt `app/modules/workflows/engine.py` from a 4-step stub into a real
+  DAG-validated (DFS cycle detection), dependency-gated, approval-gated state machine with
+  timeout escalation. **Resolves F9.**
+- **M8 (Predictive Risk):** rebuilt `app/modules/predictive/engine.py` to query real regulation/
+  obligation counts from the DB and feed them to the orchestrator as grounding evidence, instead
+  of returning hardcoded dicts.
+- **M10 (Transaction Monitoring, new):** deterministic AML rule engine (CTR threshold,
+  structuring, 24h velocity, high-risk geography, tenant-custom rules) blended with AI typology
+  analysis, fully audit-logged — `app/modules/transactions/engine.py`,
+  `app/api/v1/transactions_router.py`.
+- **AI OS Architecture:** `tasks/ai_os_architecture.md` — documents the kernel (AI Orchestrator,
+  audit hash chain, multi-tenant identity, workflow engine) vs. vertical (M1-M10) split, and flags
+  that M3 (KYC) and M4 (Monitoring) have no deterministic fallback if AI fails, unlike the new M10
+  pattern.
+- **Correction:** T0.3 (JWT middleware) was found already implemented in `app/core/auth.py` —
+  corrected from NOT STARTED to DONE in `tasks/premortem.md`.
+- **Risk score recalculated:** 59 → 55/100 (see `tasks/premortem.md` Review & Updates for the
+  per-dimension breakdown).
 
 ---
 
@@ -136,15 +158,15 @@ curl -H "Authorization: Bearer <invalid-token>" http://localhost:8000/api/v1/hea
 
 ## Risk Scorecard Baseline
 
-### **Current State (as of 2026-06-23)**
+### **Current State (recalculated 2026-06-23, post M7/M8/M10)**
 
 | Dimension | Score | Trend | Next Milestone |
 |---|---|---|---|
-| **Service Availability** | 42/100 | ↓ | T1.1 (fallback routing) |
-| **Data Integrity** | 58/100 | → | T0.1-T0.4 (isolation + audit) |
-| **Regulatory Compliance** | 72/100 | → | T1.3 (data residency) |
-| **Operational Stability** | 64/100 | ↓ | T1.2 (rate limiting) |
-| **OVERALL** | 59/100 | ↓ | → 47/100 after Phase 0 |
+| **Service Availability** | 42/100 | → | T1.1 (fallback routing) — untouched today |
+| **Data Integrity** | 58/100 | → | T0.1-T0.4 (isolation + audit) — untouched today |
+| **Regulatory Compliance** | 68/100 | ↓ | T1.3 (data residency) — improved by JWT correction |
+| **Operational Stability** | 56/100 | ↓ | T1.2 (rate limiting) — improved by F9 resolution |
+| **OVERALL** | 55/100 | ↓ | → 47/100 after Phase 0 |
 
 **Target at Go-Live:** 11/100 (fully hardened, production-ready)
 
@@ -191,6 +213,7 @@ Each mitigation must include:
 - **Dashboard:** `/frontend/public/index2.html`
 - **API Docs:** OpenAPI spec at `/api/v1/docs`
 - **Architecture:** `CLAUDE.md` (codebase instructions)
+- **AI OS Architecture (kernel vs. vertical):** `/tasks/ai_os_architecture.md`
 
 ---
 

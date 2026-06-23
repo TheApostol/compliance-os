@@ -276,7 +276,7 @@ async def seed_premortem():
             severity=FailureModeSeverity.HIGH,
             category="workflows",
             affected_modules=["M7"],
-            status=FailureModeStatus.IDENTIFIED,
+            status=FailureModeStatus.RESOLVED,
         )
         session.add(f9)
         await session.flush()
@@ -292,6 +292,7 @@ async def seed_premortem():
                 owner=owner,
                 effort_estimate=effort,
                 priority=0,
+                status="completed",
             ))
 
         # F10: Evidence Custody Chain Broken
@@ -583,6 +584,48 @@ async def seed_premortem():
             priority="high",
             related_failure_modes=[f1.id, f5.id],
             status="acknowledged",
+        ))
+
+        session.add(PremortermFinding(
+            tenant_id=TENANT_ID,
+            title="M7 workflow engine rebuilt as real DAG state machine (resolves F9)",
+            description=(
+                "Replaced the fixed 4-step stub with DFS cycle detection on create, "
+                "dependency-gated and approval-gated step transitions, and timeout-based "
+                "escalation (7d default). F9 moved IDENTIFIED -> RESOLVED."
+            ),
+            finding_type="resolution",
+            priority="high",
+            related_failure_modes=[f9.id],
+            status="resolved",
+        ))
+
+        session.add(PremortermFinding(
+            tenant_id=TENANT_ID,
+            title="M8 predictive engine grounded in real DB aggregates",
+            description=(
+                "Jurisdiction risk and market-entry simulation previously returned hardcoded "
+                "dicts. Now query real regulation/obligation counts per country and feed them "
+                "to the orchestrator as evidence, with the model instructed not to invent figures."
+            ),
+            finding_type="resolution",
+            priority="medium",
+            related_failure_modes=[],
+            status="resolved",
+        ))
+
+        session.add(PremortermFinding(
+            tenant_id=TENANT_ID,
+            title="M10 Transaction Monitoring (AML) shipped",
+            description=(
+                "New module: deterministic rule engine (CTR threshold, structuring, 24h "
+                "velocity, high-risk geography, tenant-custom rules) blended with AI typology "
+                "analysis (0.4 rule / 0.6 AI), audit-logged per screening decision."
+            ),
+            finding_type="capability_added",
+            priority="medium",
+            related_failure_modes=[],
+            status="resolved",
         ))
 
         await session.commit()

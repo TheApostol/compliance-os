@@ -9,7 +9,7 @@
 
 ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATAM countries. Through a structured premortem exercise, we've identified **18 high-impact failure modes** and designed testable mitigations prioritized by regulatory impact and operational criticality.
 
-**Current Risk Score:** 59/100 → **Target:** 11/100 (by 2026-08-06)
+**Current Risk Score:** 59/100 → **55/100** (recalculated 2026-06-23, see Review & Updates) → **Target:** 11/100 (by 2026-08-06)
 
 ---
 
@@ -32,7 +32,7 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 |---|---|---|---|---|
 | **F6** | Qdrant connection pool exhausted | Infrastructure | RESOLVED | 2026-06-25 |
 | **F7** | PostgreSQL connection pool exhausted | Infrastructure | MITIGATED (80%) | 2026-07-01 |
-| **F9** | Workflow engine deadlock (circular approval chains) | Workflows | IDENTIFIED | 2026-07-15 |
+| **F9** | Workflow engine deadlock (circular approval chains) | Workflows | ✅ RESOLVED | 2026-06-23 (done) |
 | **F10** | Evidence custody chain broken (JSONB hash mutation) | Evidence | IDENTIFIED | 2026-07-22 |
 | **F11** | RAG embedding model deprecated mid-year | AI Reliability | IDENTIFIED | 2026-07-29 |
 | **F12** | Compliance case race condition (concurrent UPDATE) | Data Integrity | IDENTIFIED | 2026-07-08 |
@@ -48,11 +48,11 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 ## Part 2: Implementation Roadmap (5 Phases)
 
 ### Phase 0: Foundation (W1-2) — Data Isolation + Audit
-**Goal:** Fix blocking data isolation bugs; establish monitoring. **Status:** 🔴 NOT STARTED
+**Goal:** Fix blocking data isolation bugs; establish monitoring. **Status:** 🟡 IN PROGRESS (T0.3 done)
 
 - [ ] **T0.1** Tenant ID audit (21 queries) — Add `tenant_id` filter to all DB queries | 3d | Backend
 - [ ] **T0.2** Qdrant tenant namespacing — Use `regulations_{tenant_id}` collections | 2d | Backend
-- [ ] **T0.3** JWT middleware enforcement — Replace `X-Tenant-Id` header with signed JWT | 3d | Backend
+- [x] **T0.3** JWT middleware enforcement — Replace `X-Tenant-Id` header with signed JWT | 3d | Backend | ✓ DONE (`app/core/auth.py` — local HS256 + Auth0/Clerk RS256 via JWKS; `X-Tenant-Id` header remains only as documented dev-mode fallback when `APP_ENV != production`)
 - [ ] **T0.4** Audit log DB role enforcement — Create `complianceos_audit_logger` role; INSERT-ONLY | 1d | Backend
 - [ ] **T0.5** Monitoring: crawler success rate — Alert if crawler returns 0 docs | 2d | Ops
 
@@ -103,10 +103,10 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 ---
 
 ### Phase 3: State Machines & Data Quality (W8-9)
-**Goal:** Fix workflow/case state transitions; embed model versioning. **Status:** 🔴 NOT STARTED
+**Goal:** Fix workflow/case state transitions; embed model versioning. **Status:** 🟡 IN PROGRESS (T3.1, T3.2 done)
 
-- [ ] **T3.1** Workflow DAG validation (cycle detection with DFS) | 2d | Backend
-- [ ] **T3.2** Workflow step timeout + escalation (7d default, auto-escalate if exceeded) | 2d | Backend
+- [x] **T3.1** Workflow DAG validation (cycle detection with DFS) | 2d | Backend | ✓ DONE — `_validate_dag()` in `app/modules/workflows/engine.py`, resolves F9
+- [x] **T3.2** Workflow step timeout + escalation (7d default, auto-escalate if exceeded) | 2d | Backend | ✓ DONE — `check_step_timeouts()`, `DEFAULT_STEP_TIMEOUT_DAYS = 7`, resolves F9
 - [ ] **T3.3** Compliance case optimistic locking (version column, StaleObjectError) | 2d | Backend
 - [ ] **T3.4** Embedding model versioning + migration plan (dual-write, 1w cutover) | 3d | Backend
 
@@ -166,6 +166,18 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 - `backend/app/services/premortem.py` — Risk scoring + aggregation
 - `tests/test_premortem_scenarios.py` — F1-F18 integration tests
 
+### Shipped Today (2026-06-23) — Beyond the Original 18 Risks
+- `backend/app/modules/workflows/engine.py` — Real DAG state machine, resolves F9 (see T3.1/T3.2)
+- `backend/app/modules/predictive/engine.py` — M8 predictive risk now grounded in real DB
+  aggregates (regulation/obligation counts) instead of hardcoded dicts; no F-number assigned
+  but directly addresses the "fake data" trust gap flagged in the M7/M8 review
+- `backend/app/modules/transactions/engine.py`, `app/api/v1/transactions_router.py` — New M10
+  Transaction Monitoring module: deterministic AML rule engine (CTR/structuring/velocity/geography)
+  blended with AI typology analysis, audit-logged per screening
+- `tasks/ai_os_architecture.md` — Kernel-vs-vertical architecture assessment; identifies that M3
+  (KYC) and M4 (Monitoring) have **no deterministic fallback** if AI fails, unlike the new M10
+  pattern — flagged as a reliability gap adjacent to F1/F5/F15, not yet fixed
+
 ---
 
 ## Part 4: Go-Live Criteria (All Required for Production)
@@ -198,7 +210,17 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 
 ## Review & Updates
 
-- **2026-06-23:** Premortem exercise completed. 18 failure modes identified, mitigations planned, 5-phase roadmap drafted.
+- **2026-06-23 (AM):** Premortem exercise completed. 18 failure modes identified, mitigations planned, 5-phase roadmap drafted.
+- **2026-06-23 (PM):** M7 (workflow engine) rebuilt as a real DAG-validated, dependency/approval-gated
+  state machine with timeout escalation — **F9 moved IDENTIFIED → RESOLVED**, T3.1/T3.2 done.
+  M8 (predictive risk) rebuilt to ground AI output in real DB aggregates instead of hardcoded
+  data. New M10 module (Transaction Monitoring/AML) shipped. Audit found T0.3 (JWT) was already
+  implemented in `app/core/auth.py` and is corrected from NOT STARTED → DONE. Risk score
+  recalculated: **59 → 55/100** (Operational Stability 64→56 from F9 resolution; Regulatory
+  Compliance 72→68 from the JWT correction; Service Availability and Data Integrity unchanged —
+  F1/F2/F3/F5/F8/F10/F12/F18 are untouched and remain the path to 11/100). See
+  `tasks/ai_os_architecture.md` for the architectural framing behind today's M7/M8/M10 work and
+  a newly-flagged gap (M3/M4 have no deterministic fallback if AI fails, unlike M10).
 - **Next Review:** 2026-07-01 (Phase 0 checkpoint)
 
 ---
@@ -210,3 +232,4 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 - API endpoints: `/backend/app/api/v1/premortem_router.py`
 - Models: `/backend/app/db/models.py` (Premortem* tables)
 - Engine: `/backend/app/modules/premortem/engine.py`
+- AI OS architecture (kernel vs. vertical): `/tasks/ai_os_architecture.md`
