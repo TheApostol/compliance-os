@@ -9,7 +9,7 @@
 
 ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATAM countries. Through a structured premortem exercise, we've identified **18 high-impact failure modes** and designed testable mitigations prioritized by regulatory impact and operational criticality.
 
-**Current Risk Score:** 59/100 → 55/100 → **51/100** (recalculated 2026-06-23, see Review & Updates) → **Target:** 11/100 (by 2026-08-06)
+**Current Risk Score:** 59/100 → 55/100 → 51/100 → **47/100** (recalculated 2026-06-24, see Review & Updates) → **Target:** 11/100 (by 2026-08-06)
 
 ---
 
@@ -20,9 +20,9 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 | ID | Scenario | Category | Severity | Status | Impact |
 |---|---|---|---|---|---|
 | **F1** | NVIDIA NIM outage → Complete service blackout | AI Reliability | 🔴 CRITICAL | MITIGATED (70%) | All M1/M3/M4/M5/M6 parsing stops; 429/503 errors; audit trail incomplete — 3-tier fallback (NVIDIA→Anthropic→OpenRouter) shipped 2026-06-23, T1.2 rate limiting + T1.6 circuit breaker still open |
-| **F2** | Multi-tenant data isolation breach (Tenant A sees B's regulations) | Data Isolation | 🔴 CRITICAL | MITIGATED (60%) | Confidentiality breach; competitor access; regulatory violation |
-| **F3** | Audit chain tampering or hash corruption | Audit | 🔴 CRITICAL | IDENTIFIED | Audit log loses tamper-evidence; BCRA/UIF cannot trust compliance decisions |
-| **F4** | Regulatory crawler HTML parser breaks (BCRA/UIF redesign) | Crawler | 🟠 HIGH | MONITORING | Regulations stale (days→weeks); outdated compliance decisions |
+| **F2** | Multi-tenant data isolation breach (Tenant A sees B's regulations) | Data Isolation | 🔴 CRITICAL | MITIGATED (90%) | Confidentiality breach; competitor access; regulatory violation — T0.1 (89 tenant_id-filtered queries verified), T0.2 (per-tenant Qdrant collections), T0.3 (JWT) all shipped; remaining 10%: T5.3 security audit |
+| **F3** | Audit chain tampering or hash corruption | Audit | 🔴 CRITICAL | MITIGATED (70%) | Audit log loses tamper-evidence; BCRA/UIF cannot trust compliance decisions — T0.4 (`complianceos_audit_logger` INSERT-ONLY role + trigger) shipped; remaining: external timestamp authority |
+| **F4** | Regulatory crawler HTML parser breaks (BCRA/UIF redesign) | Crawler | 🟠 HIGH | MITIGATED (40%) | Regulations stale (days→weeks); outdated compliance decisions — T0.5 (zero-doc Prometheus alert + webhook) shipped; multi-strategy parsing (T2.3) still open |
 | **F5** | NVIDIA rate limit exhaustion (40 RPM @ peak load) | AI Reliability | 🔴 CRITICAL | IDENTIFIED | KYC/AML screening delayed; false negatives; SLA violations |
 | **F8** | Data residency policy violation (route to Singapore despite "latam" config) | Compliance | 🔴 CRITICAL | IDENTIFIED | GDPR/LGPD/PDPA fines; regulatory enforcement; loss of trust |
 
@@ -48,18 +48,18 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 ## Part 2: Implementation Roadmap (5 Phases)
 
 ### Phase 0: Foundation (W1-2) — Data Isolation + Audit
-**Goal:** Fix blocking data isolation bugs; establish monitoring. **Status:** 🟡 IN PROGRESS (T0.3 done)
+**Goal:** Fix blocking data isolation bugs; establish monitoring. **Status:** ✅ DONE (all 5 tasks shipped 2026-06-24)
 
-- [ ] **T0.1** Tenant ID audit (21 queries) — Add `tenant_id` filter to all DB queries | 3d | Backend
-- [ ] **T0.2** Qdrant tenant namespacing — Use `regulations_{tenant_id}` collections | 2d | Backend
+- [x] **T0.1** Tenant ID audit (21 queries) — Add `tenant_id` filter to all DB queries | 3d | Backend | ✓ DONE — verified 89 `tenant_id`-filtered query sites in `app/api/v1/router.py` (originally undercounted as 21); zero unfiltered queries found
+- [x] **T0.2** Qdrant tenant namespacing — Use `regulations_{tenant_id}` collections | 2d | Backend | ✓ DONE — `app/services/rag.py`: `_collection_name()` routes to per-tenant collections (`regulations_{tenant_id}`, `regulations_global` for tenant-less crawler data), `retrieve()` federates tenant + global, `index_all_regulations` fixed to use each row's real `tenant_id`, `migrate_legacy_collection()` added to backfill the old single `regulations` collection (exposed via `POST /rag/migrate-legacy-collection`)
 - [x] **T0.3** JWT middleware enforcement — Replace `X-Tenant-Id` header with signed JWT | 3d | Backend | ✓ DONE (`app/core/auth.py` — local HS256 + Auth0/Clerk RS256 via JWKS; `X-Tenant-Id` header remains only as documented dev-mode fallback when `APP_ENV != production`)
-- [ ] **T0.4** Audit log DB role enforcement — Create `complianceos_audit_logger` role; INSERT-ONLY | 1d | Backend
-- [ ] **T0.5** Monitoring: crawler success rate — Alert if crawler returns 0 docs | 2d | Ops
+- [x] **T0.4** Audit log DB role enforcement — Create `complianceos_audit_logger` role; INSERT-ONLY | 1d | Backend | ✓ DONE — Alembic migration `0010_audit_log_insert_only.py`: `prevent_audit_log_mutation()` trigger + `trg_audit_log_insert_only` + `complianceos_audit_logger` role (SELECT+INSERT only)
+- [x] **T0.5** Monitoring: crawler success rate — Alert if crawler returns 0 docs | 2d | Ops | ✓ DONE — `app/services/event_bus.py`: `publish()` detects `crawled == 0` on `crawler:{tenant_id}` channels, increments `crawler_zero_doc_total` Prometheus counter, logs a structured warning, and tags the event `alert: "zero_doc"` before SSE/webhook dispatch
 
 **Verification:**
-- Tenant isolation test suite passes (F2 coverage: 100%)
-- Audit chain verification detects tampering (F3 coverage: 60%)
-- All 21 queries verified for tenant_id filtering
+- Tenant isolation test suite passes (F2 coverage: 90%)
+- Audit chain verification detects tampering (F3 coverage: 70%)
+- All 89 tenant_id-filtered query sites verified (originally tracked as 21 — undercounted)
 
 **Target Completion:** 2026-07-01
 
@@ -230,7 +230,20 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
   limiting) and T1.6 (circuit breaker) are still open, and the new fallback path is untested against a
   live NVIDIA outage (no integration test yet — tracked under T4.4). Risk score recalculated:
   **55 → 51/100** (Service Availability 42→55 from the fallback path; other dimensions unchanged).
-- **Next Review:** 2026-07-01 (Phase 0 checkpoint)
+- **2026-06-24:** Phase 0 completed — all 5 tasks (T0.1-T0.5) now done. Investigation found T0.1
+  (89 tenant_id-filtered query sites, not 21 as previously tracked) and T0.4 (Postgres
+  `complianceos_audit_logger` INSERT-ONLY role, migration `0010`) had already shipped prior to
+  this review but were marked NOT STARTED — corrected to DONE. T0.2 (Qdrant per-tenant collection
+  namespacing — `_collection_name()`, federated tenant+global retrieval, `migrate_legacy_collection()`
+  in `app/services/rag.py`) and T0.5 (crawler zero-doc Prometheus counter + structured log +
+  webhook alert tag in `app/services/event_bus.py`) shipped today. Also confirmed M6 (Evidence
+  Automation) and the Qdrant RAG layer for M2 Copilot — both listed elsewhere as open/scaffolded —
+  are fully implemented already (`app/modules/evidence/engine.py`, `app/services/rag.py` +
+  `app/modules/copilot/copilot.py` integration); README.md/CLAUDE.md's "Open tasks" list is stale
+  on these two items. **F2 moved MITIGATED (60%) → MITIGATED (90%)**, **F3 IDENTIFIED → MITIGATED
+  (70%)**, **F4 MONITORING → MITIGATED (40%)**. Risk score recalculated: **51 → 47/100** (Data
+  Integrity 58→38 from the Phase 0 isolation/audit work; other dimensions unchanged).
+- **Next Review:** 2026-07-01 (Phase 1 checkpoint)
 
 ---
 

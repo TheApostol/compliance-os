@@ -613,20 +613,24 @@ async def refresh_access_token(req: RefreshRequest):
 # ═══════════════════════════════════════════════════════════════════
 
 @router.get("/rag/status")
-async def rag_status():
-    """Qdrant collection info and document count."""
-    from app.services.rag import get_rag, COLLECTION
-    try:
-        client = get_rag()._get_qdrant()
-        info = await client.get_collection(COLLECTION)
-        return {
-            "collection": COLLECTION,
-            "vector_count": info.vectors_count,
-            "indexed_vectors": info.indexed_vectors_count,
-            "status": info.status,
-        }
-    except Exception as e:
-        return {"error": str(e)}
+async def rag_status(tenant_id: str = Depends(get_tenant_id)):
+    """Qdrant collection info and document count for the tenant's collection
+    plus the shared global (tenant-less) collection."""
+    from app.services.rag import get_rag, _collection_name
+    client = get_rag()._get_qdrant()
+    result = {}
+    for label, name in (("tenant", _collection_name(tenant_id)), ("global", _collection_name(None))):
+        try:
+            info = await client.get_collection(name)
+            result[label] = {
+                "collection": name,
+                "vector_count": info.vectors_count,
+                "indexed_vectors": info.indexed_vectors_count,
+                "status": info.status,
+            }
+        except Exception as e:
+            result[label] = {"collection": name, "error": str(e)}
+    return result
 
 
 @router.post("/rag/reindex")
@@ -634,9 +638,21 @@ async def rag_reindex(
     tenant_id: str = Depends(get_tenant_id),
     admin: CurrentUser = Depends(require_admin),
 ):
-    """Re-embed all regulations from DB into Qdrant (admin only)."""
+    """Re-embed all regulations from DB into Qdrant, each under its own owning
+    tenant (admin only)."""
     from app.services.rag import get_rag
     return await get_rag().index_all_regulations(tenant_id=tenant_id)
+
+
+@router.post("/rag/migrate-legacy-collection")
+async def rag_migrate_legacy(
+    admin: CurrentUser = Depends(require_admin),
+):
+    """One-off admin migration: move points from the legacy global 'regulations'
+    Qdrant collection into the new per-tenant collections. Does not delete the
+    legacy collection."""
+    from app.services.rag import get_rag
+    return await get_rag().migrate_legacy_collection()
 
 
 # ═══════════════════════════════════════════════════════════════════

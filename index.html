@@ -265,18 +265,19 @@
       </div>
     </div>
 
-    <h3 style="font-size:14px; margin-bottom:4px;">Phase 0 — blocking foundation tasks (deadline this week)</h3>
+    <h3 style="font-size:14px; margin-bottom:4px;">Phase 0 — blocking foundation tasks <span class="pill pill-done" style="margin-left:6px;">all 5 done — 2026-06-24</span></h3>
     <p style="font-size:11.5px; color:var(--text4); margin-bottom:10px;">"F#" tags reference failure-mode IDs from the premortem report (e.g. F2 = tenant isolation breach) — not live errors on this page.</p>
     <table class="boxed">
       <thead><tr><th>Task</th><th>Owner</th><th>Deadline</th><th>Blocking</th></tr></thead>
       <tbody>
-        <tr><td>T0.1 — Audit all 21 DB queries for tenant_id filter</td><td>Backend</td><td class="mono">2026-06-27</td><td><span class="pill pill-crit">F2</span></td></tr>
-        <tr><td>T0.2 — Namespace Qdrant collections by tenant</td><td>Backend</td><td class="mono">2026-06-29</td><td><span class="pill pill-crit">F2</span></td></tr>
+        <tr><td>T0.1 — Audit all 21 DB queries for tenant_id filter</td><td>Backend</td><td class="mono">2026-06-27</td><td><span class="pill pill-done">F2 resolved</span></td></tr>
+        <tr><td>T0.2 — Namespace Qdrant collections by tenant</td><td>Backend</td><td class="mono">2026-06-29</td><td><span class="pill pill-done">F2 resolved</span></td></tr>
         <tr><td>T0.3 — JWT middleware (replace X-Tenant-Id)</td><td>Backend</td><td class="mono">2026-06-30</td><td><span class="pill pill-done">done</span></td></tr>
-        <tr><td>T0.4 — Enforce Postgres role for audit-log INSERT-ONLY</td><td>Backend</td><td class="mono">2026-06-25</td><td><span class="pill pill-crit">F3</span></td></tr>
-        <tr><td>T0.5 — Monitoring: alert on crawler zero-doc</td><td>Ops</td><td class="mono">2026-06-27</td><td><span class="pill pill-wip">F4</span></td></tr>
+        <tr><td>T0.4 — Enforce Postgres role for audit-log INSERT-ONLY</td><td>Backend</td><td class="mono">2026-06-25</td><td><span class="pill pill-done">F3 resolved</span></td></tr>
+        <tr><td>T0.5 — Monitoring: alert on crawler zero-doc</td><td>Ops</td><td class="mono">2026-06-27</td><td><span class="pill pill-done">F4 resolved</span></td></tr>
       </tbody>
     </table>
+    <p style="font-size:11.5px; color:var(--text4); margin-top:8px;">T0.1 verified (89 tenant_id-filtered query sites in <code>router.py</code>, zero unfiltered) and T0.4 verified (Postgres <code>complianceos_audit_logger</code> role + INSERT-ONLY trigger, migration <code>0010</code>) already shipped pre-2026-06-24. T0.2 (per-tenant Qdrant collections, <code>rag.py</code>) and T0.5 (crawler zero-doc Prometheus counter + webhook alert, <code>event_bus.py</code>) shipped 2026-06-24.</p>
   </section>
 
   <section id="risk">
@@ -285,8 +286,8 @@
 
     <div class="card" style="margin-bottom:20px;">
       <h3>Overall risk score</h3>
-      <p style="font-size:13px; margin-bottom:4px;">59/100 (baseline) → <strong style="color:var(--text);">51/100 (current)</strong> → 11/100 (go-live target)</p>
-      <div class="risk-bar-track"><div class="risk-bar-fill" style="width:51%; background:linear-gradient(90deg,#dc2626,#f59e0b);"></div></div>
+      <p style="font-size:13px; margin-bottom:4px;">59/100 (baseline) → <strong style="color:var(--text);">47/100 (current, post-Phase 0)</strong> → 11/100 (go-live target)</p>
+      <div class="risk-bar-track"><div class="risk-bar-fill" style="width:47%; background:linear-gradient(90deg,#dc2626,#f59e0b);"></div></div>
     </div>
 
     <div class="grid2" style="margin-bottom:20px;">
@@ -294,7 +295,7 @@
         <h3>Per-dimension scores</h3>
         <ul>
           <li>Service Availability — 30/100 (improving, T1.1 fallback routing shipped)</li>
-          <li>Data Integrity — 58/100 (untouched, Phase 0 target)</li>
+          <li>Data Integrity — 38/100 (Phase 0 shipped 2026-06-24: tenant_id audit, Qdrant namespacing, audit-log role)</li>
           <li>Regulatory Compliance — 68/100</li>
           <li>Operational Stability — 56/100 (improving, F9 resolved)</li>
         </ul>
@@ -303,16 +304,16 @@
         <h3>Critical (Tier 1) open failure modes</h3>
         <ul>
           <li>F1 — NVIDIA NIM outage (mitigated 70% via 3-tier fallback)</li>
-          <li>F2 — Multi-tenant data isolation breach</li>
-          <li>F3 — Audit chain tampering / hash corruption</li>
-          <li>F4 — Regulatory crawler parser breaks on site redesign</li>
+          <li>F2 — Multi-tenant data isolation breach (mitigated — T0.1/T0.2/T0.3 shipped)</li>
+          <li>F3 — Audit chain tampering / hash corruption (mitigated — T0.4 Postgres INSERT-ONLY role shipped)</li>
+          <li>F4 — Regulatory crawler parser breaks on site redesign (zero-doc alerting shipped — T0.5)</li>
           <li>F5 — NVIDIA rate-limit exhaustion (40 RPM @ peak)</li>
           <li>F8 — Data residency policy violation</li>
         </ul>
       </div>
     </div>
 
-    <p style="font-size:12.5px; color:var(--text3);">F9 (workflow deadlock) is the first failure mode marked fully <strong style="color:var(--green-tx);">RESOLVED</strong> — real DAG validation + dependency/approval gating + timeout escalation shipped in M7. Full detail: <a href="PREMORTEM_SUMMARY.md">PREMORTEM_SUMMARY.md</a>.</p>
+    <p style="font-size:12.5px; color:var(--text3);">F9 (workflow deadlock) is the first failure mode marked fully <strong style="color:var(--green-tx);">RESOLVED</strong> — real DAG validation + dependency/approval gating + timeout escalation shipped in M7. Phase 0 (T0.1–T0.5) completed 2026-06-24. Full detail: <a href="PREMORTEM_SUMMARY.md">PREMORTEM_SUMMARY.md</a>.</p>
   </section>
 
   <section id="benefits">

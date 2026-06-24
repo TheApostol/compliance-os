@@ -5,21 +5,26 @@ Tests:
   - _chunk_text: produces chunks ≤ CHUNK_SIZE + overhead, all ≥ 50 chars, overlaps work
   - context_for_query: empty retrieve → ""
   - context_for_query: 2 chunks returned → output contains "[1]" and "[2]"
+  - _collection_name: per-tenant naming + tenant-less "_global" collection (T0.2)
+  - index_all_regulations: indexes each row under its own tenant_id, not the caller's (T0.2)
 
 All Qdrant / embedding I/O is mocked.
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.services.rag import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
+    COLLECTION,
     RAGService,
     _chunk_text,
+    _collection_name,
 )
 
 
@@ -231,3 +236,70 @@ class TestContextForQuery:
 
         assert "[1]" in result
         assert "[2]" not in result
+
+
+# ── _collection_name (T0.2 — per-tenant Qdrant namespacing) ───────────────────
+
+
+class TestCollectionName:
+    def test_tenant_id_produces_suffixed_collection(self):
+        assert _collection_name("polkorp") == f"{COLLECTION}_polkorp"
+
+    def test_none_tenant_id_produces_global_collection(self):
+        assert _collection_name(None) == f"{COLLECTION}_global"
+
+    def test_non_alphanumeric_chars_are_sanitized(self):
+        assert _collection_name("acme-corp.test") == f"{COLLECTION}_acme_corp_test"
+
+    def test_different_tenants_produce_different_collections(self):
+        assert _collection_name("polkorp") != _collection_name("acme")
+
+
+# ── index_all_regulations (T0.2 — each row indexed under its own tenant_id) ───
+
+
+def _make_regulation(tenant_id: str | None, code: str = "UIF/2024/001") -> MagicMock:
+    from app.db.models import Regulation
+
+    reg = MagicMock(spec=Regulation)
+    reg.id = uuid.uuid4()
+    reg.tenant_id = tenant_id
+    reg.code = code
+    reg.country = "AR"
+    reg.regulator = "UIF"
+    reg.title = "AML Reporting Regulation"
+    reg.full_text = "Some regulatory text long enough to be indexed."
+    return reg
+
+
+class TestIndexAllRegulations:
+    """index_all_regulations must route each row to ITS OWN tenant_id, not the
+    caller-supplied outer tenant_id — this was the latent bug T0.2 fixed."""
+
+    @pytest.mark.asyncio
+    async def test_each_row_indexed_under_its_own_tenant_id(self):
+        svc = RAGService()
+        owned_reg = _make_regulation(tenant_id="acme", code="ACME/001")
+        global_reg = _make_regulation(tenant_id=None, code="GLOBAL/001")
+
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [owned_reg, global_reg]
+        mock_execute_result = MagicMock()
+        mock_execute_result.scalars.return_value = mock_scalars
+
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_execute_result)
+        mock_session.commit = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("app.db.base.AsyncSessionLocal", return_value=mock_session),
+            patch.object(svc, "index_regulation", new=AsyncMock(return_value=1)) as mock_index,
+        ):
+            # outer tenant_id is deliberately different from either row's real
+            # tenant_id, to prove rows aren't re-indexed under the caller's tenant.
+            await svc.index_all_regulations(tenant_id="some-other-caller")
+
+        called_tenant_ids = [call.kwargs["tenant_id"] for call in mock_index.call_args_list]
+        assert called_tenant_ids == ["acme", None]

@@ -1,6 +1,6 @@
 # ComplianceOS Premortem Exercise — Summary & Next Steps
 
-**Completed:** 2026-06-23 | **Live:** www.polkorp.com/index2.html | **Branch:** `claude/polkorp-index2-premortem-ypipap`
+**Completed:** 2026-06-23 | **Last updated:** 2026-06-24 (Phase 0 complete) | **Live:** www.polkorp.com/index2.html | **Branch:** `claude/polkorp-index2-premortem-ypipap`
 
 ---
 
@@ -84,6 +84,37 @@
   IDENTIFIED → MITIGATED (70%)** — T1.2 (rate limiting) and T1.6 (circuit breaker) are still open,
   and this path has not been integration-tested against a live NVIDIA outage. Risk score: 55 → 51/100.
 
+### 6. **2026-06-24 Update — Phase 0 Complete (T0.1-T0.5), Stale-Docs Correction**
+- **T0.1 (tenant ID audit) corrected DONE:** verified 89 `tenant_id`-filtered query sites in
+  `app/api/v1/router.py` — the plan had tracked this as "21 queries," which undercounted the
+  actual surface; zero unfiltered queries found.
+- **T0.2 (Qdrant tenant namespacing) shipped:** `app/services/rag.py` now routes every collection
+  operation through `_collection_name(tenant_id)` — per-tenant `regulations_{tenant_id}`
+  collections for owned data, a shared `regulations_global` collection for tenant-less
+  crawler-ingested regulations. `retrieve()` federates both and re-ranks by score.
+  `index_all_regulations` had a latent bug (ignored each row's real `tenant_id`, re-indexed
+  everything under one caller-supplied tenant) — fixed to use `reg.tenant_id` per row. Added
+  `migrate_legacy_collection()` to backfill the old single global `regulations` collection into
+  the new per-tenant layout without deleting the source data, exposed via
+  `POST /api/v1/rag/migrate-legacy-collection`.
+- **T0.4 (audit log DB role) corrected DONE:** verified already shipped via Alembic migration
+  `0010_audit_log_insert_only.py` (`prevent_audit_log_mutation()` trigger +
+  `complianceos_audit_logger` role, SELECT+INSERT only) — was tracked as NOT STARTED.
+- **T0.5 (crawler zero-doc alerting) shipped:** `app/services/event_bus.py`'s `publish()` —
+  the sole chokepoint used by all 9 crawler functions in `scheduler.py` — now detects
+  `crawled == 0` on `crawler:{tenant_id}` channels, increments a new `crawler_zero_doc_total`
+  Prometheus counter (labeled by `regulator`/`tenant_id`, visible at `/metrics`), logs a
+  structured warning, and tags the event payload `alert: "zero_doc"` before SSE/webhook dispatch.
+- **Stale-docs finding:** README.md and CLAUDE.md's "Open tasks" list mark M6 (Evidence
+  Automation) as "🚧 scaffolded only" and a "Qdrant RAG layer" for Copilot as not-yet-built.
+  Both are already fully implemented (`app/modules/evidence/engine.py`, 409 lines of PDF OCR +
+  chain-of-custody hashing + DB persistence; `app/services/rag.py` + live integration in
+  `app/modules/copilot/copilot.py`). Not corrected in this pass — flagging for a separate
+  docs-cleanup task since it wasn't part of the approved Phase 0 scope.
+- **Phase 0 status:** all 5 tasks (T0.1-T0.5) now DONE. **F2 MITIGATED (60%) → MITIGATED (90%)**,
+  **F3 IDENTIFIED → MITIGATED (70%)**, **F4 MONITORING → MITIGATED (40%)**. Risk score:
+  51 → 47/100 (Data Integrity 58 → 38).
+
 ---
 
 ## How to Use the Premortem Dashboard
@@ -129,22 +160,22 @@ Local dev: http://localhost:3000/public/index2.html (after frontend build)
 
 ## Critical Next Steps (Phase 0)
 
-### **Week 1-2: Foundation Tasks**
+### **Week 1-2: Foundation Tasks — ✅ ALL DONE (2026-06-24)**
 
-| Task | Owner | Deadline | Blocking |
-|---|---|---|---|
-| **T0.1** Audit all 21 DB queries for tenant_id filter | Backend | 2026-06-27 | YES (F2) |
-| **T0.2** Namespace Qdrant collections by tenant | Backend | 2026-06-29 | YES (F2) |
-| **T0.3** Implement JWT middleware (replace X-Tenant-Id) | Backend | 2026-06-30 | YES (F2, F8) |
-| **T0.4** Enforce Postgres role for audit log INSERT-ONLY | Backend | 2026-06-25 | YES (F3) |
-| **T0.5** Add monitoring: alert on crawler zero-doc | Ops | 2026-06-27 | NO (F4) |
+| Task | Owner | Deadline | Blocking | Status |
+|---|---|---|---|---|
+| **T0.1** Audit all DB queries for tenant_id filter | Backend | 2026-06-27 | F2 | ✓ DONE — 89 tenant_id-filtered sites verified in `router.py` (was tracked as 21, undercounted) |
+| **T0.2** Namespace Qdrant collections by tenant | Backend | 2026-06-29 | F2 | ✓ DONE — `app/services/rag.py`, per-tenant `regulations_{tenant_id}` + federated `regulations_global` |
+| **T0.3** Implement JWT middleware (replace X-Tenant-Id) | Backend | 2026-06-30 | F2, F8 | ✓ DONE — `app/core/auth.py` |
+| **T0.4** Enforce Postgres role for audit log INSERT-ONLY | Backend | 2026-06-25 | F3 | ✓ DONE — Alembic migration `0010_audit_log_insert_only.py` |
+| **T0.5** Add monitoring: alert on crawler zero-doc | Ops | 2026-06-27 | F4 | ✓ DONE — `app/services/event_bus.py`, `crawler_zero_doc_total` Prometheus counter |
 
 ### **Success Criteria for Phase 0**
-- ✓ All 21 queries verified + tested for tenant isolation
+- ✓ All tenant_id-filtered queries verified + tested for tenant isolation
 - ✓ JWT middleware live in staging (dev fallback still works)
 - ✓ Audit log DB role enforced + verified
 - ✓ Qdrant namespaced by tenant
-- ✓ Monitoring alerts enabled for crawler + rate limit
+- ✓ Monitoring alerts enabled for crawler zero-doc (rate-limit alerting still open — T1.2)
 
 ### **Verification:**
 ```bash
@@ -166,15 +197,15 @@ curl -H "Authorization: Bearer <invalid-token>" http://localhost:8000/api/v1/hea
 
 ## Risk Scorecard Baseline
 
-### **Current State (recalculated 2026-06-23, post M7/M8/M10/T1.1)**
+### **Current State (recalculated 2026-06-24, post Phase 0 completion)**
 
 | Dimension | Score | Trend | Next Milestone |
 |---|---|---|---|
 | **Service Availability** | 30/100 | ↓ | T1.2 (rate limiting) + T1.6 (circuit breaker) — improved by T1.1 fallback routing |
-| **Data Integrity** | 58/100 | → | T0.1-T0.4 (isolation + audit) — untouched today |
+| **Data Integrity** | 38/100 | ↓ | T1.5 (connection pool tuning) — improved by T0.1/T0.2/T0.4 (Phase 0 complete) |
 | **Regulatory Compliance** | 68/100 | ↓ | T1.3 (data residency) — improved by JWT correction |
 | **Operational Stability** | 56/100 | ↓ | T1.2 (rate limiting) — improved by F9 resolution |
-| **OVERALL** | 51/100 | ↓ | → 47/100 after Phase 0 |
+| **OVERALL** | 47/100 | ↓ | → Phase 1 (T1.2-T1.6) next |
 
 **Target at Go-Live:** 11/100 (fully hardened, production-ready)
 
