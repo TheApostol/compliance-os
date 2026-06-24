@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import heapq
 import json
 import time
 from dataclasses import dataclass, field
@@ -310,22 +311,62 @@ class InferenceResult:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# RATE LIMITER
+# RATE LIMITER — token bucket w/ priority queue (T1.2)
 # ═══════════════════════════════════════════════════════════════════
 
 class RateLimiter:
+    """Token bucket: `rpm` tokens, refilled lazily at `rpm/60` tokens/sec.
+
+    `acquire(priority=...)` — lower number = served first. Waiters queue on
+    a heap keyed by (priority, sequence): only the head-of-heap ticket may
+    consume a freed token, so interactive calls (priority 0) jump ahead of
+    bulk/background ones (priority 1+) already queued, with FIFO order
+    preserved within the same priority tier.
+    """
+
     def __init__(self, rpm: int):
         self.rpm = rpm
-        self.min_delay = 60.0 / rpm
-        self._last_call: float = 0.0
-        self._lock = asyncio.Lock()
+        self.capacity = float(rpm)
+        self.refill_rate = rpm / 60.0  # tokens per second
+        self._tokens = float(rpm)
+        self._last_refill = time.monotonic()
+        self._cond = asyncio.Condition()
+        self._heap: list[tuple[int, int]] = []
+        self._seq = 0
 
-    async def acquire(self):
-        async with self._lock:
-            elapsed = time.time() - self._last_call
-            if elapsed < self.min_delay:
-                await asyncio.sleep(self.min_delay - elapsed)
-            self._last_call = time.time()
+    def _refill_locked(self) -> None:
+        now = time.monotonic()
+        elapsed = now - self._last_refill
+        if elapsed > 0:
+            self._tokens = min(self.capacity, self._tokens + elapsed * self.refill_rate)
+            self._last_refill = now
+
+    async def acquire(self, priority: int = 0) -> None:
+        async with self._cond:
+            self._seq += 1
+            ticket = (priority, self._seq)
+            heapq.heappush(self._heap, ticket)
+            try:
+                while True:
+                    self._refill_locked()
+                    if self._heap[0] == ticket and self._tokens >= 1:
+                        heapq.heappop(self._heap)
+                        self._tokens -= 1
+                        self._cond.notify_all()
+                        return
+                    wait_s = (
+                        max((1 - self._tokens) / self.refill_rate, 0.01)
+                        if self.refill_rate > 0 else 0.05
+                    )
+                    try:
+                        await asyncio.wait_for(self._cond.wait(), timeout=wait_s)
+                    except TimeoutError:
+                        pass
+            except asyncio.CancelledError:
+                if ticket in self._heap:
+                    self._heap.remove(ticket)
+                    heapq.heapify(self._heap)
+                raise
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -630,12 +671,18 @@ class AIOrchestrator:
         payload = f"{req.tenant_id}:{req.task}:{datetime.now(timezone.utc).isoformat()}:{req.user_prompt[:80]}"
         return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
-    async def embed(self, texts: list[str], tenant_id: str = "system") -> list[list[float]] | None:
-        """Generate embeddings via NVIDIA NIM nv-embed-v2. Returns list of vectors or None on failure."""
+    async def embed(
+        self, texts: list[str], tenant_id: str = "system", low_priority: bool = False
+    ) -> list[list[float]] | None:
+        """Generate embeddings via NVIDIA NIM nv-embed-v2. Returns list of vectors or None on failure.
+
+        `low_priority=True` (bulk/background indexing) queues behind interactive
+        calls on the shared rate limiter instead of competing with them 1:1.
+        """
         if not self.settings.has_nvidia:
             return None
         try:
-            await self.rate_limiter.acquire()
+            await self.rate_limiter.acquire(priority=1 if low_priority else 0)
             response = await self.client.embeddings.create(
                 model=EMBED_MODEL,
                 input=[t[:8000] for t in texts],

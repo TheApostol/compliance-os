@@ -82,7 +82,9 @@ class RAGService:
             return False
 
     async def _embed_passage(self, text: str, tenant_id: str) -> list[float] | None:
-        vectors = await self._get_orch().embed([text[:2000]], tenant_id=tenant_id)
+        vectors = await self._get_orch().embed(
+            [text[:2000]], tenant_id=tenant_id, low_priority=True
+        )
         return vectors[0] if vectors else None
 
     async def _embed_query(self, text: str, tenant_id: str) -> list[float] | None:

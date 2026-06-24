@@ -13,10 +13,14 @@ from __future__ import annotations
 
 import pytest
 
+import asyncio
+import time
+
 from app.services.ai_orchestrator import (
     AIOrchestrator,
     InferenceRequest,
     MODELS,
+    RateLimiter,
     ROUTING,
     TaskType,
     detect_injection,
@@ -237,3 +241,78 @@ class TestNoDeprecatedModels:
                         f"Routing chain for {task.value} uses deprecated model "
                         f"'{deprecated_id}' via key '{model_key}'"
                     )
+
+
+# ── RateLimiter (T1.2 — token bucket + priority queue) ─────────────────────────
+
+
+class TestRateLimiter:
+    def test_starts_at_full_capacity(self):
+        rl = RateLimiter(rpm=40)
+        assert rl._tokens == 40.0
+
+    def test_refills_over_time(self):
+        rl = RateLimiter(rpm=60)  # 1 token/sec
+        rl._tokens = 0.0
+        rl._last_refill -= 0.5  # simulate 0.5s elapsed without a real sleep
+        rl._refill_locked()
+        assert 0.4 <= rl._tokens <= 0.6
+
+    def test_refill_caps_at_capacity(self):
+        rl = RateLimiter(rpm=60)
+        rl._last_refill -= 1000  # huge elapsed gap
+        rl._refill_locked()
+        assert rl._tokens == rl.capacity
+
+    @pytest.mark.asyncio
+    async def test_burst_up_to_capacity_has_no_delay(self):
+        rl = RateLimiter(rpm=10)
+        start = time.monotonic()
+        await asyncio.gather(*[rl.acquire() for _ in range(10)])
+        elapsed = time.monotonic() - start
+        assert elapsed < 0.5
+
+    @pytest.mark.asyncio
+    async def test_exhausted_bucket_forces_wait(self):
+        rl = RateLimiter(rpm=600)  # 10 tokens/sec
+        rl._tokens = 0.0
+        start = time.monotonic()
+        await rl.acquire()
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.05
+
+    @pytest.mark.asyncio
+    async def test_high_priority_jumps_ahead_of_low_priority(self):
+        rl = RateLimiter(rpm=600)  # 10 tokens/sec
+        rl._tokens = 0.0
+        order: list[str] = []
+
+        async def acquire_and_record(name: str, priority: int) -> None:
+            await rl.acquire(priority=priority)
+            order.append(name)
+
+        low_task = asyncio.create_task(acquire_and_record("low", priority=1))
+        await asyncio.sleep(0.02)  # low's ticket is queued first
+        high_task = asyncio.create_task(acquire_and_record("high", priority=0))
+
+        await asyncio.gather(low_task, high_task)
+        assert order[0] == "high", (
+            f"Expected high-priority waiter served first despite queueing later; got {order}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_fifo_within_same_priority_tier(self):
+        rl = RateLimiter(rpm=600)  # 10 tokens/sec
+        rl._tokens = 0.0
+        order: list[str] = []
+
+        async def acquire_and_record(name: str) -> None:
+            await rl.acquire(priority=0)
+            order.append(name)
+
+        first_task = asyncio.create_task(acquire_and_record("first"))
+        await asyncio.sleep(0.02)
+        second_task = asyncio.create_task(acquire_and_record("second"))
+
+        await asyncio.gather(first_task, second_task)
+        assert order[0] == "first"
