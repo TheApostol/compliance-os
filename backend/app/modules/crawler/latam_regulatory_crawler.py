@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from app.db.base import AsyncSessionLocal
 from app.db.models import Regulation
-from app.services.ai_orchestrator import ai_orchestrator
+from app.services.ai_orchestrator import InferenceRequest, TaskType, get_orchestrator
 
 
 class CrawlResult(BaseModel):
@@ -118,7 +118,7 @@ class LatamRegulatoryCrawler:
         regulator: str,
         title: str,
         data: Any,
-        model_preference: str = "meta/llama-3.3-70b-instruct",
+        tenant_id: str,
     ) -> List[Dict[str, Any]]:
         prompt = (
             f"Extract structured regulatory obligations, risks, deadlines, metrics, "
@@ -126,11 +126,13 @@ class LatamRegulatoryCrawler:
             f"Return strict JSON with an 'obligations' list.\n\n"
             f"{json.dumps(data, ensure_ascii=False, default=str)[:14000]}"
         )
-        result = await ai_orchestrator.infer(
-            task_type="regulatory_parsing",
-            prompt=prompt,
-            model_preference=model_preference,
-        )
+        result = await get_orchestrator().infer(InferenceRequest(
+            task=TaskType.REGULATORY_PARSING,
+            system="You are a regulatory intelligence extraction engine for LATAM compliance data.",
+            user_prompt=prompt,
+            tenant_id=tenant_id,
+            json_mode=True,
+        ))
         return self._extract_obligations(result)
 
     async def crawl_regulator(self, regulator: str, tenant_id: str, *, store: bool = True, **kwargs) -> List[CrawlResult]:
@@ -160,7 +162,7 @@ class LatamRegulatoryCrawler:
             url = f"{base}{path}"
             try:
                 data = await self._get_json(url)
-                obligations = await self._parse_with_ai(regulator="BCRA", title=title, data=data)
+                obligations = await self._parse_with_ai(regulator="BCRA", title=title, data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCRA - {title}", country="AR", regulator="BCRA", code=code, title=title, raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
                 print(f"[BCRA {title}] Error: {exc}")
@@ -175,7 +177,7 @@ class LatamRegulatoryCrawler:
             try:
                 data = await self._get_json(url)
                 sample = data[:100] if isinstance(data, list) else data
-                obligations = await self._parse_with_ai(regulator="BACEN", title=f"Series {code}", data=sample)
+                obligations = await self._parse_with_ai(regulator="BACEN", title=f"Series {code}", data=sample, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BACEN Series {code}", country="BR", regulator="BACEN", code=f"BACEN_SGS_{code}", title=f"BACEN SGS Series {code}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
                 print(f"[BACEN {code}] Error: {exc}")
@@ -194,7 +196,7 @@ class LatamRegulatoryCrawler:
             params = {"user": user, "pass": password, "function": "GetSeries", "timeseries": ts, "firstdate": (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"), "lastdate": datetime.now().strftime("%Y-%m-%d")}
             try:
                 data = await self._get_json(base, params=params)
-                obligations = await self._parse_with_ai(regulator="BCCh", title=f"Series {ts}", data=data)
+                obligations = await self._parse_with_ai(regulator="BCCh", title=f"Series {ts}", data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCCh Series {ts}", country="CL", regulator="BCCh", code=f"BCCH_{ts}", title=f"BCCh Series {ts}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=base))
             except Exception as exc:
                 print(f"[BCCh {ts}] Error: {exc}")
@@ -208,7 +210,7 @@ class LatamRegulatoryCrawler:
             url = f"{base}/{code}/json"
             try:
                 data = await self._get_json(url)
-                obligations = await self._parse_with_ai(regulator="BCRP", title=f"Series {code}", data=data)
+                obligations = await self._parse_with_ai(regulator="BCRP", title=f"Series {code}", data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"BCRP Series {code}", country="PE", regulator="BCRP", code=f"BCRP_{code}", title=f"BCRP Series {code}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
                 print(f"[BCRP {code}] Error: {exc}")
@@ -226,7 +228,7 @@ class LatamRegulatoryCrawler:
             url = f"{base}/{s}/datos"
             try:
                 data = await self._get_json(url, headers={"Bmx-Token": token})
-                obligations = await self._parse_with_ai(regulator="Banxico", title=f"Series {s}", data=data)
+                obligations = await self._parse_with_ai(regulator="Banxico", title=f"Series {s}", data=data, tenant_id=tenant_id)
                 results.append(CrawlResult(source=f"Banxico Series {s}", country="MX", regulator="Banxico", code=f"BANXICO_{s}", title=f"Banxico Series {s}", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url))
             except Exception as exc:
                 print(f"[Banxico {s}] Error: {exc}")
@@ -237,7 +239,7 @@ class LatamRegulatoryCrawler:
         try:
             data = await self._get_json(url, params={"$limit": 100})
             sample = data[:50] if isinstance(data, list) else data
-            obligations = await self._parse_with_ai(regulator="SFC", title="Open Data", data=sample)
+            obligations = await self._parse_with_ai(regulator="SFC", title="Open Data", data=sample, tenant_id=tenant_id)
             return [CrawlResult(source="SFC Open Data", country="CO", regulator="SFC", code="SFC_OPEN_DATA", title="SFC Open Data", raw_data=data, extracted_obligations=obligations, evidence_hash=self._hash_payload(data), tenant_id=tenant_id, source_url=url)]
         except Exception as exc:
             print(f"[SFC] Error: {exc}")

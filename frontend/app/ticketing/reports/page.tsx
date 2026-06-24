@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
@@ -82,6 +82,14 @@ const DIMENSION_LABELS: Record<string, string> = {
 }
 
 export default function ReportsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportsPageInner />
+    </Suspense>
+  )
+}
+
+function ReportsPageInner() {
   const searchParams = useSearchParams()
   const [events, setEvents] = useState<any[]>([])
   const [selectedEvent, setSelectedEvent] = useState(searchParams.get('event_id') ?? '')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -39,6 +39,14 @@ type GeneratedDoc = {
 }
 
 export default function DocumentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <DocumentsPageInner />
+    </Suspense>
+  )
+}
+
+function DocumentsPageInner() {
   const searchParams = useSearchParams()
   const [events, setEvents] = useState<any[]>([])
   const [selectedEvent, setSelectedEvent] = useState(searchParams.get('event_id') ?? '')
