@@ -25,7 +25,7 @@ Not a dashboard, not a KYC wrapper. **Regulatory infrastructure** that turns reg
 | M3 | AML/KYC Orchestration | ✅ | `backend/app/modules/kyc_aml/engine.py` |
 | M4 | Continuous Monitoring | ✅ | `backend/app/modules/monitoring/engine.py` |
 | M5 | AI Governance | ✅ | `backend/app/modules/governance/engine.py` |
-| M6 | Evidence Automation | 🚧 | `backend/app/modules/evidence/` (scaffolded only) |
+| M6 | Evidence Automation | ✅ | `backend/app/modules/evidence/engine.py` |
 
 ## Validated AI models (benchmark 2026-05-11 with Federico's API key)
 
@@ -77,12 +77,15 @@ make db-shell    # psql into the database
 
 ## Open tasks (priority order)
 
-1. **Verify orchestrator v0.2 routing** — Run `make benchmark` and confirm all routes work with current model list.
-2. **Build M6 Evidence module** — OCR with `nvidia/nemotron-ocr-v1` or alternative. Should extract structured data from regulator PDFs (UIF, BCRA, BACEN).
-3. **Build Qdrant RAG layer** — Embed regulations on ingestion, retrieve top-K for Copilot context.
-4. **Build regulatory crawler** — Start with BCRA + UIF Argentina. Cron job that fetches new regulations, parses with M1, stores in DB + Qdrant.
-5. **Compliance graph** — Model regulations + obligations + entities + controls as a graph. Consider Postgres+AGE first (less ops overhead than Neo4j).
-6. **Auth integration** — Replace `X-Tenant-Id` header with JWT (Auth0 or Clerk).
+This list previously claimed M6, the RAG layer, the regulatory crawler, the compliance graph,
+and JWT auth were all unbuilt — they are all shipped (see "Where to find things" below). Current
+open work tracks the premortem roadmap in `tasks/premortem.md`; as of 2026-06-24, Phase 0
+(T0.1-T0.5) is done, and Phase 1's T1.1 (provider fallback), T1.2 (rate limiting), T1.3 (data
+residency), and T1.6 (circuit breaker) are also done. Remaining:
+
+1. **T1.5 — Connection pool tuning** (Qdrant, PostgreSQL) — addresses F6/F7.
+2. **T1.4 — Deadline/timezone checker** — addresses deadline-miss failure modes.
+3. **Verify orchestrator routing** — Run `make benchmark` and confirm all routes work with current model list.
 
 ## Where to find things
 
@@ -91,6 +94,11 @@ make db-shell    # psql into the database
 - Audit log: `backend/app/core/audit.py`
 - DB models: `backend/app/db/models.py`
 - API endpoints: `backend/app/api/v1/router.py`
+- RAG layer (Qdrant): `backend/app/services/rag.py`
+- Evidence module (M6): `backend/app/modules/evidence/engine.py`
+- Regulatory crawlers (9 LATAM regulators + scheduler): `backend/app/modules/crawler/`
+- Compliance graph: `backend/app/services/graph_service.py`
+- JWT auth: `backend/app/core/auth.py`
 - Frontend: `frontend/app/page.tsx`
 
 ## Style for outputs / commits

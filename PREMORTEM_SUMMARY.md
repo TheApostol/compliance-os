@@ -1,6 +1,6 @@
 # ComplianceOS Premortem Exercise — Summary & Next Steps
 
-**Completed:** 2026-06-23 | **Last updated:** 2026-06-24 (Phase 0 complete) | **Live:** www.polkorp.com/index2.html | **Branch:** `claude/polkorp-index2-premortem-ypipap`
+**Completed:** 2026-06-23 | **Last updated:** 2026-06-24 (Phase 1: T1.1, T1.2, T1.3, T1.6 complete) | **Live:** www.polkorp.com/premortem (Next.js route, `frontend/app/premortem/page.tsx` — supersedes the old static `index2.html`, deleted in `daad1f5`) | **Branch:** `claude/polkorp-index2-premortem-ypipap`
 
 ---
 
@@ -9,7 +9,7 @@
 ### 1. **Complete Premortem Infrastructure**
 ✅ Database models for failure modes, mitigations, and findings  
 ✅ Backend API endpoints (`/api/v1/premortem/*`) for risk management  
-✅ Real-time dashboard (`index2.html`) with risk heatmap, progress tracking, and alerts  
+✅ Real-time dashboard (`frontend/app/premortem/page.tsx`) with risk heatmap, progress tracking, and alerts  
 ✅ Risk scoring engine for system health monitoring  
 ✅ Seed data script with 18 failure modes and 50+ mitigations  
 
@@ -40,7 +40,7 @@
 | **Phase 4** | W10-11 | Dashboard + integration tests | 2026-08-27 |
 | **Phase 5** | W12-13 | Hardening + compliance audit + rollout | 2026-09-10 |
 
-**Risk Score Trajectory:** 59/100 (baseline) → 55/100 (post M7/M8/M10) → **51/100 (2026-06-23, post T1.1 fallback routing)** → 11/100 (target)
+**Risk Score Trajectory:** 59/100 (baseline) → 55/100 (post M7/M8/M10) → 51/100 (2026-06-23, post T1.1 fallback routing) → 47/100 (2026-06-24, post Phase 0) → **44/100 (2026-06-24, post T1.2 rate limiter + T1.3/T1.6 status correction)** → 11/100 (target)
 
 ### 4. **Actionable Artifacts**
 
@@ -49,7 +49,7 @@
 - `backend/app/api/v1/premortem_router.py` — 200+ lines API endpoints
 - `backend/app/modules/premortem/engine.py` — Risk management engine
 - `backend/seeds/premortem_seed.py` — Seed data (18 modes, 50+ mitigations)
-- `frontend/public/index2.html` — Interactive dashboard
+- `frontend/app/premortem/page.tsx` — Interactive dashboard (Next.js route; the original static `frontend/public/index2.html` was removed in `daad1f5`)
 - `tasks/premortem.md` — Full implementation plan + checklist
 
 **Files Modified:**
@@ -115,14 +115,31 @@
   **F3 IDENTIFIED → MITIGATED (70%)**, **F4 MONITORING → MITIGATED (40%)**. Risk score:
   51 → 47/100 (Data Integrity 58 → 38).
 
+### 7. **2026-06-24 Update (PM) — T1.2 Shipped, T1.3/T1.6 Stale-Status Correction**
+- **T1.2 (token-bucket rate limiter) shipped:** `RateLimiter` in `backend/app/services/ai_orchestrator.py`
+  rewritten from a fixed-interval pacer (rigid `60/rpm`-second gap between every call, no burst, no
+  priority) into a lazy-refill token bucket — `capacity = rpm`, refilled at `rpm/60` tokens/sec on each
+  `acquire()` — with a priority-ordered waiter heap (`asyncio.Condition` + `heapq`, FIFO within a tier).
+  `AIOrchestrator.embed()` gained `low_priority: bool = False`; `backend/app/services/rag.py`'s
+  bulk/background `_embed_passage` (regulation indexing) now passes `low_priority=True` so interactive
+  Copilot retrieval (`_embed_query`) no longer queues behind bulk embedding jobs. Covered by 7 new unit
+  tests in `backend/tests/test_orchestrator.py::TestRateLimiter`. **Resolves F5** (rate limit exhaustion).
+- **Stale-status correction:** `tasks/premortem.md` still tracked **T1.3** (data residency enforcement)
+  and **T1.6** (circuit breaker) as open `[ ]` checkboxes, but both were already shipped in commit
+  `daad1f5` ("Sprint 3 hardening", 2026-06-23) — `CircuitBreaker` class and
+  `RESIDENCY_ALLOWED_PROVIDERS`/`_get_residency_policy()`, both wired into `infer()`. Flipped to `[x]`
+  DONE with code citations.
+- **Risk score:** 47 → 44/100. **F1 MITIGATED (70%) → MITIGATED (95%)**, **F5 IDENTIFIED → MITIGATED
+  (80%)**. Phase 1 now only has T1.4 (deadline checker) and T1.5 (connection pool tuning) open.
+
 ---
 
 ## How to Use the Premortem Dashboard
 
 ### **Access the Dashboard**
 ```
-Live: www.polkorp.com/index2.html
-Local dev: http://localhost:3000/public/index2.html (after frontend build)
+Live: www.polkorp.com/premortem
+Local dev: http://localhost:3000/premortem (Next.js route — frontend/app/premortem/page.tsx)
 ```
 
 ### **Key Features**
@@ -175,7 +192,8 @@ Local dev: http://localhost:3000/public/index2.html (after frontend build)
 - ✓ JWT middleware live in staging (dev fallback still works)
 - ✓ Audit log DB role enforced + verified
 - ✓ Qdrant namespaced by tenant
-- ✓ Monitoring alerts enabled for crawler zero-doc (rate-limit alerting still open — T1.2)
+- ✓ Monitoring alerts enabled for crawler zero-doc
+- ✓ Rate limiting shipped (T1.2, 2026-06-24) — token-bucket `RateLimiter` w/ priority queue in `app/services/ai_orchestrator.py`
 
 ### **Verification:**
 ```bash
@@ -197,15 +215,15 @@ curl -H "Authorization: Bearer <invalid-token>" http://localhost:8000/api/v1/hea
 
 ## Risk Scorecard Baseline
 
-### **Current State (recalculated 2026-06-24, post Phase 0 completion)**
+### **Current State (recalculated 2026-06-24, post T1.2 rate limiter + T1.3/T1.6 status correction)**
 
 | Dimension | Score | Trend | Next Milestone |
 |---|---|---|---|
-| **Service Availability** | 30/100 | ↓ | T1.2 (rate limiting) + T1.6 (circuit breaker) — improved by T1.1 fallback routing |
+| **Service Availability** | 30/100 | ↓ | T1.2 (rate limiting) + T1.6 (circuit breaker) shipped — next up: live load test under F5/F1 verification |
 | **Data Integrity** | 38/100 | ↓ | T1.5 (connection pool tuning) — improved by T0.1/T0.2/T0.4 (Phase 0 complete) |
-| **Regulatory Compliance** | 68/100 | ↓ | T1.3 (data residency) — improved by JWT correction |
-| **Operational Stability** | 56/100 | ↓ | T1.2 (rate limiting) — improved by F9 resolution |
-| **OVERALL** | 47/100 | ↓ | → Phase 1 (T1.2-T1.6) next |
+| **Regulatory Compliance** | 68/100 | ↓ | T1.3 (data residency) shipped (`daad1f5`) — next up: legal sign-off on residency policy coverage |
+| **Operational Stability** | 56/100 | ↓ | T1.2 (rate limiting) shipped — improved by F9 resolution |
+| **OVERALL** | 44/100 | ↓ | → Phase 1 remaining (T1.4, T1.5) next |
 
 **Target at Go-Live:** 11/100 (fully hardened, production-ready)
 
@@ -249,7 +267,7 @@ Each mitigation must include:
 
 - **Premortem Plan:** `/tasks/premortem.md`
 - **Risk Data:** `/backend/seeds/premortem_seed.py`
-- **Dashboard:** `/frontend/public/index2.html`
+- **Dashboard:** `/frontend/app/premortem/page.tsx` (Next.js route; old static `index2.html` removed in `daad1f5`)
 - **API Docs:** OpenAPI spec at `/api/v1/docs`
 - **Architecture:** `CLAUDE.md` (codebase instructions)
 - **AI OS Architecture (kernel vs. vertical):** `/tasks/ai_os_architecture.md`

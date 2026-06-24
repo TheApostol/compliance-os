@@ -19,11 +19,11 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 
 | ID | Scenario | Category | Severity | Status | Impact |
 |---|---|---|---|---|---|
-| **F1** | NVIDIA NIM outage → Complete service blackout | AI Reliability | 🔴 CRITICAL | MITIGATED (70%) | All M1/M3/M4/M5/M6 parsing stops; 429/503 errors; audit trail incomplete — 3-tier fallback (NVIDIA→Anthropic→OpenRouter) shipped 2026-06-23, T1.2 rate limiting + T1.6 circuit breaker still open |
+| **F1** | NVIDIA NIM outage → Complete service blackout | AI Reliability | 🔴 CRITICAL | MITIGATED (95%) | All M1/M3/M4/M5/M6 parsing stops; 429/503 errors; audit trail incomplete — 3-tier fallback (NVIDIA→Anthropic→OpenRouter) shipped 2026-06-23; T1.6 circuit breaker + T1.3 data residency enforcement shipped same day (`daad1f5`); T1.2 token-bucket rate limiter w/ priority queue shipped 2026-06-24 — remaining 5%: live-traffic load test (F5 verification) |
 | **F2** | Multi-tenant data isolation breach (Tenant A sees B's regulations) | Data Isolation | 🔴 CRITICAL | MITIGATED (90%) | Confidentiality breach; competitor access; regulatory violation — T0.1 (89 tenant_id-filtered queries verified), T0.2 (per-tenant Qdrant collections), T0.3 (JWT) all shipped; remaining 10%: T5.3 security audit |
 | **F3** | Audit chain tampering or hash corruption | Audit | 🔴 CRITICAL | MITIGATED (70%) | Audit log loses tamper-evidence; BCRA/UIF cannot trust compliance decisions — T0.4 (`complianceos_audit_logger` INSERT-ONLY role + trigger) shipped; remaining: external timestamp authority |
 | **F4** | Regulatory crawler HTML parser breaks (BCRA/UIF redesign) | Crawler | 🟠 HIGH | MITIGATED (40%) | Regulations stale (days→weeks); outdated compliance decisions — T0.5 (zero-doc Prometheus alert + webhook) shipped; multi-strategy parsing (T2.3) still open |
-| **F5** | NVIDIA rate limit exhaustion (40 RPM @ peak load) | AI Reliability | 🔴 CRITICAL | IDENTIFIED | KYC/AML screening delayed; false negatives; SLA violations |
+| **F5** | NVIDIA rate limit exhaustion (40 RPM @ peak load) | AI Reliability | 🔴 CRITICAL | MITIGATED (80%) | KYC/AML screening delayed; false negatives; SLA violations — T1.2 token-bucket rate limiter w/ priority queue shipped 2026-06-24 (`app/services/ai_orchestrator.py`: `RateLimiter`); interactive Copilot calls now preempt bulk/background embedding under load; remaining 20%: live 50-concurrent-request load test |
 | **F8** | Data residency policy violation (route to Singapore despite "latam" config) | Compliance | 🔴 CRITICAL | IDENTIFIED | GDPR/LGPD/PDPA fines; regulatory enforcement; loss of trust |
 
 ### TIER 2: HIGH (Operational Instability + Data Integrity)
@@ -66,14 +66,14 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
 ---
 
 ### Phase 1: Resilience (W3-5) — Provider Failover + Rate Limiting
-**Goal:** Handle provider failures; protect rate limits; ensure deadlines work. **Status:** 🟡 IN PROGRESS (T1.1 done)
+**Goal:** Handle provider failures; protect rate limits; ensure deadlines work. **Status:** 🟡 IN PROGRESS (T1.1, T1.2, T1.3, T1.6 done)
 
 - [x] **T1.1** Fallback routing (3-tier: NVIDIA → Anthropic → OpenRouter) | 3d | Backend | ✓ DONE — `app/services/ai_orchestrator.py`: every `ROUTING` chain now carries a `claude-sonnet-4-6` → `openrouter-llama-3.3-70b` tail; `_call_model` dispatches per `ModelSpec.provider`; `infer()` skips unconfigured providers in the chain instead of hard-failing when NVIDIA alone is down. Resolves F1.
-- [ ] **T1.2** Token bucket rate limiter (40 RPM global budget, priority queue) | 4d | Backend | Depends: T1.1
-- [ ] **T1.3** Data residency enforcement (check `tenant.data_residency_policy` at inference) | 2d | Backend | Depends: T1.1
+- [x] **T1.2** Token bucket rate limiter (40 RPM global budget, priority queue) | 4d | Backend | ✓ DONE 2026-06-24 — `app/services/ai_orchestrator.py`: `RateLimiter` rewritten as a lazy-refill token bucket (`capacity=rpm`, `refill_rate=rpm/60`) with a priority-ordered waiter heap (`acquire(priority=...)`, lower = served first, FIFO within a tier). `AIOrchestrator.embed()` takes `low_priority: bool`; `rag.py`'s `_embed_passage` (bulk/background indexing) now passes `low_priority=True` so it queues behind interactive Copilot calls (`_embed_query`, default priority) instead of competing 1:1. Resolves F5.
+- [x] **T1.3** Data residency enforcement (check `tenant.data_residency_policy` at inference) | 2d | Backend | ✓ DONE — shipped 2026-06-23 in `daad1f5` ("Sprint 3 hardening") — `app/services/ai_orchestrator.py`: `RESIDENCY_ALLOWED_PROVIDERS` + `_get_residency_policy()` filter the provider chain per-tenant before `infer()` dispatches.
 - [ ] **T1.4** Timezone & deadline checker rewrite (convert deadline to tenant TZ) | 3d | Backend | Depends: -
 - [ ] **T1.5** Connection pool tuning (PostgreSQL: 20+10, Qdrant: configured) | 2d | Backend | Depends: -
-- [ ] **T1.6** Circuit breaker for AI (open after 5 errors, auto-close after improvement) | 2d | Backend | Depends: T1.1
+- [x] **T1.6** Circuit breaker for AI (open after 5 errors, auto-close after improvement) | 2d | Backend | ✓ DONE — shipped 2026-06-23 in `daad1f5` ("Sprint 3 hardening") — `app/services/ai_orchestrator.py`: `CircuitBreaker` class, wired into `infer()` (`circuit_breaker.is_open/record_success/record_failure` per provider).
 
 **Verification:**
 - Simulate NVIDIA outage; fallback to Anthropic succeeds (F1 coverage: 100%)
@@ -243,6 +243,16 @@ ComplianceOS is an ambitious AI-native regulatory compliance platform for 9 LATA
   on these two items. **F2 moved MITIGATED (60%) → MITIGATED (90%)**, **F3 IDENTIFIED → MITIGATED
   (70%)**, **F4 MONITORING → MITIGATED (40%)**. Risk score recalculated: **51 → 47/100** (Data
   Integrity 58→38 from the Phase 0 isolation/audit work; other dimensions unchanged).
+- **2026-06-24 (PM):** T1.2 (token-bucket rate limiter w/ priority queue) shipped — `RateLimiter` in
+  `app/services/ai_orchestrator.py` rewritten from a fixed-interval pacer to a lazy-refill token
+  bucket with a priority-ordered waiter heap; `embed()` gained `low_priority`, and `rag.py`'s
+  bulk/background `_embed_passage` now passes it so interactive Copilot calls no longer queue
+  behind bulk regulation indexing. Also corrected two stale checkboxes found during this pass:
+  **T1.3** (data residency enforcement) and **T1.6** (circuit breaker) were already shipped in
+  `daad1f5` ("Sprint 3 hardening", 2026-06-23) but this file still tracked them `[ ]` — flipped to
+  done with code citations. **F1 moved MITIGATED (70%) → MITIGATED (95%)**, **F5 IDENTIFIED →
+  MITIGATED (80%)**. Risk score recalculated: **47 → 44/100** (Service Availability 55→63 from
+  the rate limiter + the T1.3/T1.6 correction; other dimensions unchanged).
 - **Next Review:** 2026-07-01 (Phase 1 checkpoint)
 
 ---
