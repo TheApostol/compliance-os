@@ -63,6 +63,7 @@ class Tenant(Base):
     name = Column(String, nullable=False)
     slug = Column(String, nullable=False, unique=True)  # used as tenant_id in JWT
     data_residency_policy = Column(String, default="global")  # global | latam | ar | br
+    timezone_iana = Column(String, default="UTC")  # IANA timezone (e.g. America/Argentina/Buenos_Aires)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     settings = Column(JSONB, default=dict)

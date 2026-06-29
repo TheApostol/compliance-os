@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone, timedelta
+import pytz
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,11 @@ async def check_deadlines(tenant_id: str = "polkorp") -> dict:
     """
     Scan all obligations with a deadline field, create/update DeadlineAlert rows
     for obligations within 90 days. Returns summary dict.
+    Deadlines are evaluated in the tenant's local timezone for accurate day counting.
     """
     from app.db.base import AsyncSessionLocal
-    from app.db.models import Obligation, DeadlineAlert, AlertSeverity, Regulation
+    from app.db.models import Obligation, DeadlineAlert, AlertSeverity, Regulation, Tenant
     from sqlalchemy import select, update
-
-    now = datetime.now(tz=timezone.utc)
-    cutoff = now + timedelta(days=90)
 
     created = 0
     updated = 0
@@ -35,6 +34,22 @@ async def check_deadlines(tenant_id: str = "polkorp") -> dict:
 
     try:
         async with AsyncSessionLocal() as session:
+            # Get tenant to access timezone configuration
+            tenant = (await session.execute(
+                select(Tenant).where(Tenant.id == tenant_id)
+            )).scalar_one_or_none()
+
+            if not tenant:
+                logger.warning("Tenant %s not found for deadline check", tenant_id)
+                return {"created": 0, "updated": 0, "total_checked": 0}
+
+            # Get current time in tenant's timezone
+            tz = _get_tenant_timezone(tenant_id, tenant.timezone_iana)
+            now_utc = datetime.now(tz=timezone.utc)
+            now_local = now_utc.astimezone(tz)
+            cutoff_local = now_local + timedelta(days=90)
+            cutoff_utc = cutoff_local.astimezone(timezone.utc)
+
             # Get regulations for this tenant
             regs = (await session.execute(
                 select(Regulation).where(Regulation.tenant_id == tenant_id)
@@ -57,10 +72,12 @@ async def check_deadlines(tenant_id: str = "polkorp") -> dict:
                 deadline_dt = _extract_deadline(ob)
                 if not deadline_dt:
                     continue
-                if deadline_dt > cutoff or deadline_dt < now:
+                if deadline_dt > cutoff_utc or deadline_dt < now_utc:
                     continue  # too far out or already past
 
-                days_remaining = (deadline_dt - now).days
+                # Convert deadline to tenant's timezone to calculate days accurately
+                deadline_local = deadline_dt.astimezone(tz)
+                days_remaining = (deadline_local.date() - now_local.date()).days
                 severity = _severity_for_days(days_remaining)
                 reg = reg_map.get(str(ob.regulation_id))
                 if not reg:
@@ -101,6 +118,15 @@ async def check_deadlines(tenant_id: str = "polkorp") -> dict:
         logger.error("check_deadlines failed: %s", e)
 
     return {"created": created, "updated": updated, "total_checked": total_checked}
+
+
+def _get_tenant_timezone(tenant_id: str, timezone_iana: str) -> pytz.timezone:
+    """Get tenant's timezone object with fallback to UTC if timezone is invalid."""
+    try:
+        return pytz.timezone(timezone_iana)
+    except pytz.exceptions.UnknownTimeZoneError:
+        logger.warning("Invalid timezone %s for tenant %s, falling back to UTC", timezone_iana, tenant_id)
+        return pytz.UTC
 
 
 def _extract_deadline(ob) -> datetime | None:
