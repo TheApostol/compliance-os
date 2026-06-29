@@ -51,7 +51,10 @@ class PremortermEngine:
 
         # Get mitigations
         mit_query = select(PremortermMitigation).where(
-            PremortermMitigation.failure_mode_id == mode_id
+            and_(
+                PremortermMitigation.failure_mode_id == mode_id,
+                PremortermMitigation.tenant_id == tenant_id,
+            )
         )
         mit_result = await self.session.execute(mit_query)
         mitigations = mit_result.scalars().all()
@@ -105,10 +108,13 @@ class PremortermEngine:
         await self.session.flush()
         return self._mode_to_dict(mode)
 
-    async def get_mitigations(self, failure_mode_id: UUID) -> list[dict[str, Any]]:
-        """Retrieve mitigations for a failure mode."""
+    async def get_mitigations(self, tenant_id: str, failure_mode_id: UUID) -> list[dict[str, Any]]:
+        """Retrieve mitigations for a failure mode, scoped to tenant."""
         query = select(PremortermMitigation).where(
-            PremortermMitigation.failure_mode_id == failure_mode_id
+            and_(
+                PremortermMitigation.failure_mode_id == failure_mode_id,
+                PremortermMitigation.tenant_id == tenant_id,
+            )
         )
         result = await self.session.execute(query)
         mitigations = result.scalars().all()
@@ -137,10 +143,15 @@ class PremortermEngine:
         return self._mitigation_to_dict(mit)
 
     async def update_mitigation_status(
-        self, mit_id: UUID, status: str
+        self, tenant_id: str, mit_id: UUID, status: str
     ) -> dict[str, Any] | None:
-        """Update mitigation status (pending/in_progress/completed)."""
-        query = select(PremortermMitigation).where(PremortermMitigation.id == mit_id)
+        """Update mitigation status (pending/in_progress/completed), scoped to tenant."""
+        query = select(PremortermMitigation).where(
+            and_(
+                PremortermMitigation.id == mit_id,
+                PremortermMitigation.tenant_id == tenant_id,
+            )
+        )
         result = await self.session.execute(query)
         mit = result.scalars().first()
         if not mit:

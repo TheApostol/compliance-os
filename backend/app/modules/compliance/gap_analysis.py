@@ -128,6 +128,7 @@ async def run_gap_analysis(
                 select(GraphVertex).where(
                     GraphVertex.vertex_type == "entity",
                     GraphVertex.entity_id == entity_id,
+                    GraphVertex.tenant_id == tenant_id,
                 )
             )).scalar_one_or_none()
 
@@ -139,6 +140,7 @@ async def run_gap_analysis(
                     select(GraphEdge).where(
                         GraphEdge.edge_type == "APPLIES_TO",
                         GraphEdge.to_vertex_id == entity_vertex.id,
+                        GraphEdge.tenant_id == tenant_id,
                     )
                 )).scalars().all()
 
@@ -155,6 +157,7 @@ async def run_gap_analysis(
                         select(GraphEdge).where(
                             GraphEdge.edge_type == "SATISFIES",
                             GraphEdge.to_vertex_id == ob_vertex.id,
+                            GraphEdge.tenant_id == tenant_id,
                         )
                     )).scalar_one_or_none()
 

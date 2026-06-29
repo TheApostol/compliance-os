@@ -263,12 +263,15 @@ class GraphVertex(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     vertex_type = Column(String(32), nullable=False, index=True)
     entity_id = Column(String(64), nullable=False, index=True)    # FK by convention only
+    tenant_id = Column(String(64), nullable=False, index=True, server_default="system")
     label = Column(String(255), nullable=False)
     properties = Column(JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_vertex_type_entity", "vertex_type", "entity_id"),
+        Index("ix_graph_vertex_tenant", "tenant_id"),
+        Index("ix_graph_vertex_tenant_type_entity", "tenant_id", "vertex_type", "entity_id"),
     )
 
 
@@ -282,6 +285,7 @@ class GraphEdge(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     from_vertex_id = Column(UUID(as_uuid=True), ForeignKey("graph_vertices.id"), nullable=False)
     to_vertex_id = Column(UUID(as_uuid=True), ForeignKey("graph_vertices.id"), nullable=False)
+    tenant_id = Column(String(64), nullable=False, index=True, server_default="system")
     edge_type = Column(String(64), nullable=False, index=True)
     properties = Column(JSONB, default=dict)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -293,6 +297,8 @@ class GraphEdge(Base):
         Index("ix_edge_from", "from_vertex_id"),
         Index("ix_edge_to", "to_vertex_id"),
         Index("ix_edge_type_from", "edge_type", "from_vertex_id"),
+        Index("ix_graph_edge_tenant", "tenant_id"),
+        Index("ix_graph_edge_tenant_type", "tenant_id", "edge_type"),
     )
 
 
