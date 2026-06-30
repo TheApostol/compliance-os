@@ -22,6 +22,7 @@ from app.api.v1.router import router as v1_router
 from app.api.v1.m7_m8_router import router as m7_m8_router
 from app.api.v1.premortem_router import premortem_router
 from app.api.v1.transactions_router import router as transactions_router
+from app.api.v1.agents_router import router as agents_router
 from app.db.base import Base, engine
 from app.middleware.rate_limit import limiter
 from app.middleware.metrics import setup_metrics
@@ -130,6 +131,15 @@ async def lifespan(app: FastAPI):
 
     get_orchestrator().set_audit_callback(_audit_callback)
 
+    # Initialize agent framework (13 agents: 1 supervisor + 6 domain + 6 skill)
+    try:
+        from app.agents import initialize_agents
+        app.state.agent_registry = initialize_agents()
+        logger.info("✓ Agent framework initialized")
+    except Exception as e:
+        logger.error("Failed to initialize agent framework: %s", e)
+        raise
+
     # Start crawler scheduler
     _scheduler = None
     if settings.crawler_enabled:
@@ -194,6 +204,7 @@ app.include_router(v1_router)
 app.include_router(m7_m8_router)
 app.include_router(premortem_router)
 app.include_router(transactions_router)
+app.include_router(agents_router)
 
 
 @app.get("/")
