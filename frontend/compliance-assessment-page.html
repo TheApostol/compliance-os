@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compliance Assessment — Polkorp</title>
+    <meta name="description" content="AI-powered entity compliance assessment across LATAM jurisdictions">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f8f9fa;
+            color: #2c3e50;
+        }
+
+        /* Polkorp Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #2c3e50;
+        }
+
+        .header-nav {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .header-nav a {
+            text-decoration: none;
+            color: #2c3e50;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .header-nav a:hover {
+            color: #3b82f6;
+        }
+
+        /* Main Layout */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .page-header {
+            margin-bottom: 3rem;
+        }
+
+        .page-header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+
+        .page-header p {
+            font-size: 1.1rem;
+            color: #666;
+        }
+
+        .breadcrumb {
+            color: #999;
+            font-size: 0.875rem;
+            margin-bottom: 2rem;
+        }
+
+        .breadcrumb a {
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        /* Embed Container */
+        .embed-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .embed-container iframe {
+            width: 100%;
+            height: 900px;
+            border: none;
+        }
+
+        /* Footer */
+        .footer {
+            background: #2c3e50;
+            color: white;
+            padding: 3rem 2rem;
+            margin-top: 4rem;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+
+        .footer-section h3 {
+            margin-bottom: 1rem;
+            font-size: 1rem;
+        }
+
+        .footer-section ul {
+            list-style: none;
+        }
+
+        .footer-section a {
+            color: #ccc;
+            text-decoration: none;
+            font-size: 0.875rem;
+            line-height: 1.8;
+        }
+
+        .footer-section a:hover {
+            color: #3b82f6;
+        }
+
+        .footer-bottom {
+            border-top: 1px solid #444;
+            padding-top: 2rem;
+            margin-top: 2rem;
+            text-align: center;
+            font-size: 0.875rem;
+            color: #999;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+                text-align: center;
+            }
+
+            .header-nav {
+                flex-direction: column;
+                gap: 1rem;
+                width: 100%;
+            }
+
+            .page-header h1 {
+                font-size: 1.75rem;
+            }
+
+            .embed-container iframe {
+                height: 600px;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: #999;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Polkorp Header -->
+    <div class="header">
+        <div class="header-logo">Polkorp</div>
+        <nav class="header-nav">
+            <a href="https://www.polkorp.com">Home</a>
+            <a href="https://www.polkorp.com/services">Services</a>
+            <a href="https://www.polkorp.com/compliance-assessment">Compliance</a>
+            <a href="https://www.polkorp.com/about">About</a>
+            <a href="https://www.polkorp.com/contact">Contact</a>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container">
+        <!-- Breadcrumb -->
+        <div class="breadcrumb">
+            <a href="https://www.polkorp.com">Home</a> / Compliance Assessment
+        </div>
+
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1>Entity Compliance Assessment</h1>
+            <p>AI-powered compliance analysis across all LATAM jurisdictions (Argentina, Brazil, Colombia, Chile, Mexico, Andean Community)</p>
+        </div>
+
+        <!-- Embed Container -->
+        <div class="embed-container">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Loading compliance assessment tool...</p>
+            </div>
+            <iframe
+                id="assessmentFrame"
+                src="/assets/compliance-os-embed.html"
+                title="ComplianceOS Compliance Assessment"
+                allow="web-share"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            ></iframe>
+        </div>
+
+        <!-- Info Section -->
+        <div style="margin-top: 4rem; padding: 2rem; background: #f0f4f8; border-radius: 8px;">
+            <h2 style="margin-bottom: 1rem; color: #2c3e50;">How It Works</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 2rem;">
+                <div>
+                    <h3 style="color: #3b82f6; margin-bottom: 0.5rem;">1. Enter Details</h3>
+                    <p style="color: #666; font-size: 0.9rem;">Provide your entity ID, type, and business sectors</p>
+                </div>
+                <div>
+                    <h3 style="color: #3b82f6; margin-bottom: 0.5rem;">2. AI Assessment</h3>
+                    <p style="color: #666; font-size: 0.9rem;">Our 3-tier agent framework analyzes compliance across jurisdictions</p>
+                </div>
+                <div>
+                    <h3 style="color: #3b82f6; margin-bottom: 0.5rem;">3. Get Results</h3>
+                    <p style="color: #666; font-size: 0.9rem;">Receive compliance score, gaps, and actionable recommendations</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>Services</h3>
+                <ul>
+                    <li><a href="https://www.polkorp.com/services">Compliance Solutions</a></li>
+                    <li><a href="https://www.polkorp.com/services/assessment">Entity Assessment</a></li>
+                    <li><a href="https://www.polkorp.com/services/monitoring">Continuous Monitoring</a></li>
+                    <li><a href="https://www.polkorp.com/services/audit">Audit & Evidence</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h3>Company</h3>
+                <ul>
+                    <li><a href="https://www.polkorp.com/about">About Us</a></li>
+                    <li><a href="https://www.polkorp.com/blog">Blog</a></li>
+                    <li><a href="https://www.polkorp.com/careers">Careers</a></li>
+                    <li><a href="https://www.polkorp.com/contact">Contact</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h3>Legal</h3>
+                <ul>
+                    <li><a href="https://www.polkorp.com/privacy">Privacy Policy</a></li>
+                    <li><a href="https://www.polkorp.com/terms">Terms of Service</a></li>
+                    <li><a href="https://www.polkorp.com/security">Security</a></li>
+                    <li><a href="https://www.polkorp.com/compliance">Compliance</a></li>
+                </ul>
+            </div>
+            <div class="footer-section">
+                <h3>Technical</h3>
+                <ul>
+                    <li><a href="https://api.polkorp.com/docs">API Documentation</a></li>
+                    <li><a href="https://github.com/TheApostol/compliance-os">GitHub</a></li>
+                    <li><a href="https://www.polkorp.com/status">System Status</a></li>
+                    <li><a href="https://www.polkorp.com/support">Support</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Polkorp Global Ventures. All rights reserved. | ComplianceOS v1.0</p>
+        </div>
+    </div>
+
+    <script>
+        // Hide loading spinner when iframe loads
+        document.getElementById('assessmentFrame').addEventListener('load', function() {
+            const loading = document.querySelector('.loading');
+            if (loading) {
+                loading.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
