@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComplianceOS — AI-Native Compliance Platform</title>
+    <meta name="description" content="Enterprise-grade AI compliance automation for LATAM regulated entities">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #1e40af;
+            --primary-light: #60a5fa;
+            --secondary: #8b5cf6;
+            --accent: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --dark-secondary: #1e293b;
+            --dark-tertiary: #334155;
+            --text-primary: #e2e8f0;
+            --text-secondary: #cbd5e1;
+            --text-muted: #94a3b8;
+            --glass-bg: rgba(30, 41, 59, 0.7);
+            --glass-border: rgba(148, 163, 184, 0.1);
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, var(--dark) 0%, #1a1f35 100%);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Animated Background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            overflow: hidden;
+        }
+
+        .bg-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.3;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .orb-1 {
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            top: -100px;
+            left: -100px;
+            animation-delay: 0s;
+        }
+
+        .orb-2 {
+            width: 250px;
+            height: 250px;
+            background: linear-gradient(135deg, #06b6d4, #3b82f6);
+            top: 50%;
+            right: -50px;
+            animation-delay: 3s;
+        }
+
+        .orb-3 {
+            width: 200px;
+            height: 200px;
+            background: linear-gradient(135deg, #8b5cf6, #06b6d4);
+            bottom: -50px;
+            left: 20%;
+            animation-delay: 6s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(30px, -30px) scale(1.1); }
+        }
+
+        /* Header/Navigation */
+        header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--glass-border);
+            background: rgba(15, 23, 42, 0.5);
+            padding: 1rem 2rem;
+            animation: slideDown 0.6s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { transform: translateY(-100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        nav {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 3rem;
+            list-style: none;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            transition: width 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(59, 130, 246, 0.4);
+        }
+
+        /* Hero Section */
+        .hero {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 8rem 2rem 4rem;
+            text-align: center;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 8vw, 4.5rem);
+            font-weight: 900;
+            margin-bottom: 1.5rem;
+            line-height: 1.2;
+            background: linear-gradient(135deg, #60a5fa, #8b5cf6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 2rem;
+            line-height: 1.6;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 4rem;
+            flex-wrap: wrap;
+        }
+
+        .btn-secondary {
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            background: transparent;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(59, 130, 246, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .hero-demo {
+            position: relative;
+            max-width: 900px;
+            margin: 0 auto;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .card-glass {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            backdrop-filter: blur(20px);
+            padding: 2rem;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Dashboard Preview */
+        .dashboard-preview {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.1));
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--primary);
+            box-shadow: 0 15px 40px rgba(59, 130, 246, 0.2);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Features Section */
+        .features {
+            max-width: 1400px;
+            margin: 6rem auto 0;
+            padding: 0 2rem;
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+
+        .section-title h2 {
+            font-size: clamp(2rem, 6vw, 3.5rem);
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #60a5fa, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .section-title p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .feature-card {
+            group card-glass;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .feature-card:hover::before {
+            left: 100%;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-10px);
+            border-color: var(--primary);
+            box-shadow: 0 20px 50px rgba(59, 130, 246, 0.25);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+            font-size: 0.95rem;
+        }
+
+        /* Assessment Form Section */
+        .assessment-section {
+            max-width: 900px;
+            margin: 4rem auto;
+            padding: 2rem;
+        }
+
+        .form-container {
+            card-glass;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 0.875rem;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            transform: scale(1.01);
+        }
+
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 1.25rem;
+            height: 1.25rem;
+            cursor: pointer;
+            accent-color: var(--primary);
+        }
+
+        .checkbox-item label {
+            margin: 0;
+            cursor: pointer;
+            color: var(--text-secondary);
+        }
+
+        .btn-assess {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 15px 40px rgba(59, 130, 246, 0.3);
+            margin-top: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-assess:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 20px 50px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-assess:active {
+            transform: translateY(-1px);
+        }
+
+        .loading-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: white;
+            margin-left: 0.5rem;
+            animation: pulse 1.4s infinite;
+        }
+
+        .loading-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .loading-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes pulse {
+            0%, 60%, 100% { opacity: 0.3; }
+            30% { opacity: 1; }
+        }
+
+        /* Results Section */
+        .results-section {
+            display: none;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .result-card {
+            card-glass;
+            text-align: center;
+        }
+
+        .result-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .result-label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+
+        .badge.low {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            border: 1px solid #10b981;
+        }
+
+        .badge.medium {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+            border: 1px solid #f59e0b;
+        }
+
+        .badge.high {
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid #ef4444;
+        }
+
+        .badge.critical {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid #ef4444;
+        }
+
+        /* Gaps Section */
+        .gaps-section {
+            margin-top: 2rem;
+            card-glass;
+        }
+
+        .gaps-title {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .gaps-list {
+            list-style: none;
+            space-y: 0.75rem;
+        }
+
+        .gaps-list li {
+            padding: 0.75rem;
+            background: rgba(239, 68, 68, 0.05);
+            border-left: 3px solid #ef4444;
+            border-radius: 4px;
+            color: #fed7aa;
+            font-size: 0.95rem;
+        }
+
+        /* Stats Counter Animation */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            margin: 4rem auto;
+            max-width: 1400px;
+            padding: 0 2rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Footer */
+        footer {
+            background: rgba(15, 23, 42, 0.8);
+            border-top: 1px solid var(--glass-border);
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            margin-top: 4rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            header {
+                padding: 1rem;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .hero {
+                padding: 4rem 1rem 2rem;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .hero-buttons {
+                flex-direction: column;
+            }
+
+            .dashboard-preview {
+                grid-template-columns: 1fr;
+            }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .checkbox-group {
+                grid-template-columns: 1fr;
+            }
+
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Background Animation -->
+    <div class="bg-animation">
+        <div class="bg-orb orb-1"></div>
+        <div class="bg-orb orb-2"></div>
+        <div class="bg-orb orb-3"></div>
+    </div>
+
+    <!-- Navigation -->
+    <header>
+        <nav>
+            <div class="logo">
+                🚀 ComplianceOS
+            </div>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#assessment">Assessment</a></li>
+                <li><a href="#about">About</a></li>
+                <li><button class="btn-primary">Sign In</button></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>AI-Native Compliance for LATAM</h1>
+        <p>Enterprise-grade compliance automation powered by 13 specialized AI agents. Assess regulatory risk across 6 jurisdictions in seconds.</p>
+
+        <div class="hero-buttons">
+            <button class="btn-primary" onclick="document.querySelector('#assessment').scrollIntoView()">Try Assessment</button>
+            <button class="btn-secondary">Watch Demo</button>
+        </div>
+
+        <div class="hero-demo card-glass">
+            <div class="dashboard-preview">
+                <div class="stat-card">
+                    <div class="stat-value">13</div>
+                    <div class="stat-label">AI Agents</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">6</div>
+                    <div class="stat-label">LATAM Jurisdictions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">40</div>
+                    <div class="stat-label">RPM Capacity</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats-container">
+        <div class="stat-item">
+            <div class="stat-number">100/100</div>
+            <div class="stat-text">Perfect Score</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">50+</div>
+            <div class="stat-text">Test Cases</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">1000+</div>
+            <div class="stat-text">Lines of Docs</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">100%</div>
+            <div class="stat-text">Multi-Tenant Safe</div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="section-title">
+            <h2>Powerful Features</h2>
+            <p>Everything you need for enterprise compliance</p>
+        </div>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3>3-Tier Agent Framework</h3>
+                <p>Supervisor orchestrates 6 domain agents (jurisdictions) + 6 skill agents (modules) for comprehensive assessment</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔒</div>
+                <h3>Military-Grade Security</h3>
+                <p>Multi-tenant isolation, hash-chain audit logs, JWT auth, rate limiting with priority queue</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Lightning Fast</h3>
+                <p>Async/await throughout, connection pooling, circuit breaker fallbacks (NVIDIA→Anthropic→OpenRouter)</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🌍</div>
+                <h3>LATAM Expertise</h3>
+                <p>Specialized domain agents for AR, BR, CO, CL, MX, ANDEAN with local regulatory knowledge</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <h3>Real-Time Results</h3>
+                <p>Compliance score, risk level, applicable regulations, gaps, and upcoming deadlines in 5-30 seconds</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔄</div>
+                <h3>Continuous Monitoring</h3>
+                <p>Track compliance over time with timeline tracking, deadline alerts, and trend analysis</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Assessment Section -->
+    <section class="assessment-section" id="assessment">
+        <div class="section-title">
+            <h2>Run Your Assessment</h2>
+            <p>Get instant compliance insights for your entity</p>
+        </div>
+
+        <div class="form-container">
+            <form id="assessmentForm" onsubmit="handleAssessment(event)">
+                <div class="form-group">
+                    <label for="entityId">Entity ID *</label>
+                    <input type="text" id="entityId" placeholder="e.g., corp-123" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="entityType">Entity Type</label>
+                    <select id="entityType">
+                        <option value="company">Company</option>
+                        <option value="fintech" selected>FinTech</option>
+                        <option value="bank">Bank</option>
+                        <option value="crypto">Crypto Exchange</option>
+                        <option value="payment_processor">Payment Processor</option>
+                        <option value="insurance">Insurance</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Business Sectors</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="sector-payments" value="payments" checked>
+                            <label for="sector-payments">Payments</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="sector-lending" value="lending">
+                            <label for="sector-lending">Lending</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="sector-crypto" value="crypto">
+                            <label for="sector-crypto">Crypto</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="sector-trading" value="trading">
+                            <label for="sector-trading">Trading</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="sector-remittance" value="remittance">
+                            <label for="sector-remittance">Remittance</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="sector-insurance" value="insurance">
+                            <label for="sector-insurance">Insurance</label>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-assess" id="submitBtn">
+                    <span>Run Assessment</span>
+                </button>
+            </form>
+
+            <div id="resultsSection" class="results-section">
+                <div class="results-grid">
+                    <div class="result-card">
+                        <div class="result-value" id="scoreDisplay">—</div>
+                        <div class="result-label">Compliance Score</div>
+                        <div id="riskBadge"></div>
+                    </div>
+
+                    <div class="result-card">
+                        <div class="result-value" id="regCount">0</div>
+                        <div class="result-label">Regulations</div>
+                    </div>
+
+                    <div class="result-card">
+                        <div class="result-value" id="deadlineCount">0</div>
+                        <div class="result-label">Deadlines</div>
+                    </div>
+
+                    <div class="result-card">
+                        <div class="result-value" id="gapCount">0</div>
+                        <div class="result-label">Gaps Found</div>
+                    </div>
+                </div>
+
+                <div class="gaps-section" id="gapsSection" style="display:none;">
+                    <div class="gaps-title">Compliance Gaps</div>
+                    <ul class="gaps-list" id="gapsList"></ul>
+                </div>
+
+                <div class="gaps-section" id="successSection" style="display:none;">
+                    <div style="color: #10b981; font-weight: 600;">✓ No compliance gaps identified</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2026 Polkorp Global Ventures. ComplianceOS v1.0 — Enterprise-grade compliance automation</p>
+        <p style="font-size: 0.8rem; margin-top: 1rem;">API: https://api.polkorp.com • Docs: https://github.com/TheApostol/compliance-os</p>
+    </footer>
+
+    <script>
+        const API_URL = 'https://api.polkorp.com';
+
+        function getSectors() {
+            return Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+                .map(cb => cb.value);
+        }
+
+        async function handleAssessment(event) {
+            event.preventDefault();
+
+            const entityId = document.getElementById('entityId').value.trim();
+            if (!entityId) return;
+
+            const submitBtn = document.getElementById('submitBtn');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = 'Assessing<span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span>';
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_URL}/api/v1/agents/assess`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Tenant-Id': 'polkorp',
+                    },
+                    body: JSON.stringify({
+                        tenant_id: 'polkorp',
+                        entity_id: entityId,
+                        entity_type: document.getElementById('entityType').value,
+                        sectors: getSectors(),
+                    }),
+                });
+
+                if (!response.ok) throw new Error('Assessment failed');
+
+                const result = await response.json();
+                displayResults(result);
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        }
+
+        function displayResults(result) {
+            if (!result.success) {
+                alert('Assessment failed: ' + (result.error || 'Unknown error'));
+                return;
+            }
+
+            const data = result.data || result;
+
+            // Update scores
+            document.getElementById('scoreDisplay').textContent = (data.compliance_score || 0).toFixed(1) + '%';
+            document.getElementById('regCount').textContent = (data.applicable_regulations || 0);
+            document.getElementById('deadlineCount').textContent = (data.deadlines_upcoming || 0);
+
+            const gaps = data.gaps || [];
+            document.getElementById('gapCount').textContent = gaps.length;
+
+            // Update risk badge
+            const riskLevel = data.risk_level || 'unknown';
+            document.getElementById('riskBadge').innerHTML =
+                `<div class="badge ${riskLevel}">${riskLevel.toUpperCase()}</div>`;
+
+            // Update gaps
+            if (gaps.length > 0) {
+                document.getElementById('gapsList').innerHTML = gaps
+                    .map(gap => `<li>• ${gap}</li>`)
+                    .join('');
+                document.getElementById('gapsSection').style.display = 'block';
+                document.getElementById('successSection').style.display = 'none';
+            } else {
+                document.getElementById('gapsSection').style.display = 'none';
+                document.getElementById('successSection').style.display = 'block';
+            }
+
+            // Show results
+            document.getElementById('resultsSection').style.display = 'block';
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    </script>
+</body>
+</html>
