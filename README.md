@@ -1,3 +1,8 @@
+# Archived product direction — use ComplianceOS Copilot V2
+
+> [!WARNING]
+> This repository is a legacy prototype and is not the current source of truth. Do not continue product, research or AI-agent work here. Use the private canonical repository: [TheApostol/ComplianceOS-Copilot-V2](https://github.com/TheApostol/ComplianceOS-Copilot-V2).
+
 # ComplianceOS
 
 > AI-native Regulatory Intelligence & Compliance Operations Infrastructure for LATAM Regulated Industries.
